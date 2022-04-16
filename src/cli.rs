@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author = "Aalekh Patel", version, about = "A raft implementation.", long_about = None)]
 pub struct Args {
     /// The ID of this node.
     #[clap(long)]
@@ -15,5 +15,5 @@ pub struct Args {
 
     /// The remote nodes in this topology.
     #[clap(long)]
-    pub remote_nodes: Vec<String>
+    pub remote_node: Vec<String>
 }
