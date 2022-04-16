@@ -1,5 +1,8 @@
 // use crate::network::node::*;
+use std::net::SocketAddr;
 
+
+pub struct NodePool(Vec<SocketAddr>);
 
 // #[derive(Debug, Clone)]
 // pub struct TcpNodePool {

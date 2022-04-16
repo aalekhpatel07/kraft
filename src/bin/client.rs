@@ -1,44 +1,50 @@
-use color_eyre::owo_colors::OwoColorize;
-use kraft::network::node::{self, TcpNode};
-use tokio::{net::{TcpSocket, TcpStream}, io::{AsyncWriteExt, AsyncReadExt}};
-use std::{error::Error, time::{Instant, SystemTime}};
-use kraft::data::*;
-use rmp_serde::{Deserializer, Serializer};
+use tokio::{net::{TcpStream}, io::{AsyncWriteExt, AsyncReadExt}};
+use std::{time::{SystemTime}};
+use kraft::election::*;
+use rmp_serde::{Serializer};
+use serde::Serialize;
+
+
+// pub struct Client {
+
+// }
 
 
 #[tokio::main]
 async fn main() {
 
-    let self_node: TcpNode = TcpNode {
-        id: 1,
-        addr: "127.0.0.1:9000".parse().unwrap()
-    };
+    // let mut remote_nodes: Vec<TcpNode> = vec![
 
-    let mut remote_nodes: Vec<TcpNode> = vec![
+    //     TcpNode {
+    //         id: 1,
+    //         addr: "192.168.1.113:9000".parse().unwrap()
+    //     }
 
-        TcpNode {
-            id: 1,
-            addr: "192.168.1.113:9000".parse().unwrap()
-        }
+    // ];
 
-    ];
-
-    let node = remote_nodes.get(0).unwrap();
+    // let node = remote_nodes.get(0).unwrap();
 
     // for node in &remote_nodes {
     // let addr: String = format!("{}:{}", node.addr.host, node.addr.port);
 
-    let mut stream = TcpStream::connect(node.addr).await.unwrap();
+    let mut stream = TcpStream::connect("192.168.1.113:9000").await.unwrap();
     
     stream.writable().await.unwrap();
 
-    let mut counter = FizzBuzzCounter {
-        time_stamp: SystemTime::now(),
-        value: 0
+    // let counter = FizzBuzzCounter {
+    //     time_stamp: SystemTime::now(),
+    //     value: 0
+    // };
+    let request_vote = RequestVoteRPCRequest {
+        participant_type: Election::Follower,
+        term: 0,
+        candidate_id: 0,
+        last_log_index: 0,
+        last_log_term: 0
     };
 
     let mut buf = Vec::new();
-    counter.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    request_vote.serialize(&mut Serializer::new(&mut buf)).unwrap();
 
     stream.writable().await.unwrap();
 
@@ -52,17 +58,17 @@ async fn main() {
             return;
         }
 
-        let mut fizz_buzz_counter: FizzBuzzCounter = rmp_serde::decode::from_slice(&buffer).unwrap();
+        // let mut fizz_buzz_counter: FizzBuzzCounter = rmp_serde::decode::from_slice(&buffer).unwrap();
         
-        fizz_buzz_counter.print();
+        // fizz_buzz_counter.print();
 
-        fizz_buzz_counter.value += 1;
-        fizz_buzz_counter.time_stamp = SystemTime::now();
+        // fizz_buzz_counter.value += 1;
+        // fizz_buzz_counter.time_stamp = SystemTime::now();
 
-        let mut buf = Vec::new();
-        fizz_buzz_counter.serialize(&mut Serializer::new(&mut buf)).unwrap();
+        // let mut buf = Vec::new();
+        // fizz_buzz_counter.serialize(&mut Serializer::new(&mut buf)).unwrap();
 
-        stream.write_all(&buf).await.unwrap();
+        // stream.write_all(&buf).await.unwrap();
 
         buffer.clear();
     }
@@ -83,14 +89,14 @@ async fn process(stream: &mut TcpStream) {
             return;
         }
 
-        let mut fizz_buzz_counter: FizzBuzzCounter = rmp_serde::decode::from_slice(&buffer).unwrap();
+        // let mut fizz_buzz_counter: FizzBuzzCounter = rmp_serde::decode::from_slice(&buffer).unwrap();
 
-        println!("Fizz buzz counter: {:?}", fizz_buzz_counter);
+        // println!("Fizz buzz counter: {:?}", fizz_buzz_counter);
 
-        let mut buf = Vec::new();
-        fizz_buzz_counter.serialize(&mut Serializer::new(&mut buf)).unwrap();
+        // let mut buf = Vec::new();
+        // fizz_buzz_counter.serialize(&mut Serializer::new(&mut buf)).unwrap();
 
-        stream.write_all(&buf).await.unwrap();
+        // stream.write_all(&buf).await.unwrap();
 
         buffer.clear();
     }
