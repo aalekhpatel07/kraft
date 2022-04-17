@@ -27,7 +27,7 @@ impl<T: io::Read + io::Write> ReadWritePersistentState for T {
     fn write_persistent_state(&mut self, state: &PersistentState) -> Result<usize> {
 
         let mut buf = Vec::new();
-        state.serialize(&mut Serializer::new(&mut buf)).expect(format!("Could not serialize: {:?}", state).as_str());
+        state.serialize(&mut Serializer::new(&mut buf)).unwrap_or_else(|_| panic!("Could not serialize: {:?}", state));
 
         let mut e = GzEncoder::new(Vec::new(), Compression::default());
         e.write_all(&buf)?;

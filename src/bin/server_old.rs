@@ -3,15 +3,15 @@ use std::{sync::Arc, net::{SocketAddr}, collections::HashMap};
 use clap::StructOpt;
 use tokio::{net::{TcpStream, TcpListener}, io::AsyncReadExt, io::AsyncWriteExt};
 use kraft::election::*;
-use kraft::rpc::{self, *};
+
 // use kraft::rpc::*;
 use kraft::cli::Args;
-use log::{info, warn, error, debug, trace};
+use log::{error, debug, trace};
 use simple_logger::SimpleLogger;
 
 
 
-async fn process(server: Arc<tokio::sync::Mutex<Server>>, stream: &mut TcpStream) {
+async fn process(_server: Arc<tokio::sync::Mutex<Server>>, stream: &mut TcpStream) {
     let mut buffer: Vec<u8> = vec![];
 
     while let Ok(size) = stream.read_buf(&mut buffer).await {
@@ -82,8 +82,8 @@ impl Server {
     }
 
     pub fn get_socket_addr(&self, id: usize) -> SocketAddr {
-        let &(_, socket_addr) = self.remote_nodes.iter().find(|(node_id, socket_addr)| *node_id == id).unwrap();
-        socket_addr.clone()
+        let &(_, socket_addr) = self.remote_nodes.iter().find(|(node_id, _socket_addr)| *node_id == id).unwrap();
+        socket_addr
     }
 
     pub async fn connect(server: Arc<tokio::sync::Mutex<Server>>, id: usize, node: SocketAddr) {
@@ -99,7 +99,11 @@ impl Server {
             
             let hmap = &mut guard.streams;
 
-            if hmap.contains_key(&id) {
+            if let std::collections::hash_map::Entry::Vacant(e) = hmap.entry(id) {
+                trace!("Storing a new TCPStream for Node: {} at {:?}", id, node);
+                e.insert(Arc::new(tokio::sync::Mutex::new(stream)));
+                trace!("Updated hmap = {:?}", hmap);
+            } else {
 
                 let prev_value = hmap.get_mut(&id).unwrap();
                 trace!("Waiting for prev_stream lock");
@@ -112,10 +116,6 @@ impl Server {
                     trace!("Updated prev_stream = {:?}", prev_stream);
                 }
 
-            } else {
-                trace!("Storing a new TCPStream for Node: {} at {:?}", id, node);
-                hmap.insert(id, Arc::new(tokio::sync::Mutex::new(stream)));
-                trace!("Updated hmap = {:?}", hmap);
             }
 
             drop(guard);

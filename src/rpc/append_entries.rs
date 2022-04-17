@@ -50,7 +50,7 @@ impl AppendEntriesRequest {
 
 
 
-pub fn process(server: Arc<Mutex<Server>>, request: AppendEntriesRequest) -> AppendEntriesResponse {
+pub fn process(_server: Arc<Mutex<Server>>, _request: AppendEntriesRequest) -> AppendEntriesResponse {
 
     AppendEntriesResponse::default()
 }

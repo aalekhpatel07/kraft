@@ -59,7 +59,7 @@ pub async fn process(server: Arc<Mutex<Server>>, request: RequestVoteRequest) ->
         let server = server.lock().await.clone();
 
         let state_guard = server.state.lock().await;
-        let mut state = state_guard.clone();
+        let state = state_guard.clone();
         drop(state_guard);
 
         trace!("Acquired server state mutex in process request_vote.");
@@ -81,7 +81,7 @@ pub async fn process(server: Arc<Mutex<Server>>, request: RequestVoteRequest) ->
 
                     return RequestVoteResponse { term: state.current_term, vote_granted: true };
                 }
-                return RequestVoteResponse { term: state.current_term, vote_granted: false };
+                RequestVoteResponse { term: state.current_term, vote_granted: false }
             },
             None => {
                 if request.last_log_index >= state.log.len() {
@@ -96,7 +96,7 @@ pub async fn process(server: Arc<Mutex<Server>>, request: RequestVoteRequest) ->
                     
                     return RequestVoteResponse { term: state.current_term, vote_granted: true };
                 }
-                return RequestVoteResponse { term: state.current_term, vote_granted: false };
+                RequestVoteResponse { term: state.current_term, vote_granted: false }
             }
         }
     }

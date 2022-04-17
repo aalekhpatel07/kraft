@@ -5,7 +5,7 @@ use serde::Serialize;
 use tokio::{net::{TcpStream, TcpListener}, io::AsyncReadExt, io::AsyncWriteExt};
 use crate::{rpc::{self, RPCRequest, *}, election::VolatileState};
 use crate::election::PersistentState;
-use log::{info, warn, error, debug, trace};
+use log::{error, debug, trace};
 use std::fs::File;
 use crate::storage::backend::ReadWritePersistentState;
 
@@ -98,7 +98,7 @@ impl Server {
 
     pub fn get_socket_addr(&self, id: usize) -> SocketAddr {
         let &(_, socket_addr) = self.remote_nodes.iter().find(|(node_id, _)| *node_id == id).unwrap();
-        socket_addr.clone()
+        socket_addr
     }
 
     pub async fn save_state(&self) -> Result<usize, std::io::Error> {

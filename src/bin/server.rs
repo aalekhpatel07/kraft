@@ -1,12 +1,12 @@
-use std::{sync::Arc, net::{SocketAddr}, collections::HashMap, fmt, error::Error};
+use std::{sync::Arc, net::{SocketAddr}, fmt};
 
 use clap::StructOpt;
-use tokio::{net::{TcpStream, TcpListener}, io::AsyncReadExt, io::AsyncWriteExt};
-use kraft::rpc::*;
-use kraft::election::PersistentState;
-use kraft::network::node::{Server, process};
+
+
+
+use kraft::network::node::{Server};
 use kraft::cli::Args;
-use log::{info, warn, error, debug, trace};
+use log::{debug};
 use simple_logger::SimpleLogger;
 
 #[derive(Debug)]
@@ -20,7 +20,7 @@ impl std::fmt::Display for ParseError {
 }
 
 impl From<std::io::Error> for ParseError {
-    fn from(error: std::io::Error) -> Self {
+    fn from(_error: std::io::Error) -> Self {
         ParseError {}
     }
 }
@@ -30,10 +30,10 @@ fn parse_socket_and_id(s: &String) -> Result<(usize, SocketAddr), ParseError> {
     s
     .split_once(',')
     .ok_or(ParseError)
-    .and_then(|(socket_addr, id)| {
+    .map(|(socket_addr, id)| {
         let id = id.parse::<usize>().expect("Couldn't parse id.");
         let socket_addr = socket_addr.parse::<SocketAddr>().expect("Couldn't parse socket address.");
-        Ok((id, socket_addr))
+        (id, socket_addr)
     })
 }
 
