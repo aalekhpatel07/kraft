@@ -1,9 +1,7 @@
-use serde_derive::{Serialize, Deserialize};
+use crate::network::node::Server;
+use serde_derive::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::network::node::Server;
-
-
 
 pub type LogType = String;
 
@@ -22,7 +20,7 @@ pub struct AppendEntriesRequest {
     /// than one for efficiency.)
     pub entries: Vec<LogType>,
     /// The leader's commit index.
-    pub leader_commit_index: usize
+    pub leader_commit_index: usize,
 }
 
 /// Returned by followers.
@@ -32,25 +30,32 @@ pub struct AppendEntriesResponse {
     pub term: usize,
     /// True if follower contained entry matching `previous_log_index`
     /// and `previous_log_term`.
-    pub success: bool
+    pub success: bool,
 }
 
 impl AppendEntriesRequest {
-    pub fn new(term: usize, leader_id: usize, previous_log_index: usize, previous_log_term: usize, entries: Vec<LogType>, leader_commit_index: usize) -> Self {
+    pub fn new(
+        term: usize,
+        leader_id: usize,
+        previous_log_index: usize,
+        previous_log_term: usize,
+        entries: Vec<LogType>,
+        leader_commit_index: usize,
+    ) -> Self {
         Self {
             term,
             leader_id,
             previous_log_index,
             previous_log_term,
             entries,
-            leader_commit_index
+            leader_commit_index,
         }
     }
 }
 
-
-
-pub fn process(_server: Arc<Mutex<Server>>, _request: AppendEntriesRequest) -> AppendEntriesResponse {
-
+pub fn process(
+    _server: Arc<Mutex<Server>>,
+    _request: AppendEntriesRequest,
+) -> AppendEntriesResponse {
     AppendEntriesResponse::default()
 }

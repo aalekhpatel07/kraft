@@ -1,14 +1,12 @@
 // use crate::network::node::*;
 use std::net::SocketAddr;
 
-
 pub struct NodePool(Vec<SocketAddr>);
 
 // #[derive(Debug, Clone)]
 // pub struct TcpNodePool {
 //     pub nodes: Vec<TcpNode>
 // }
-
 
 // impl TcpNodePool {
 //     pub fn new(nodes: Vec<TcpNode>) -> Self {
@@ -18,7 +16,7 @@ pub struct NodePool(Vec<SocketAddr>);
 //     }
 
 //     pub async fn start(&self) {
-//         let handles = 
+//         let handles =
 //             self
 //                 .nodes
 //                 .iter()

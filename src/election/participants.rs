@@ -1,12 +1,11 @@
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde_derive::{Serialize, Deserialize};
-
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Election {
     Follower,
     Candidate,
-    Leader
+    Leader,
 }
 
 pub type StateMachineCommand = String;
@@ -17,16 +16,15 @@ pub type LogRecord = (StateMachineCommand, usize);
 pub struct PersistentState {
     /// The kind of the election entity that the current node is assigned.
     pub participant_type: Election,
-    /// The latest term server has seen (initialized to 0 on first boot, increases 
+    /// The latest term server has seen (initialized to 0 on first boot, increases
     /// monotonically.)
     pub current_term: usize,
     /// The `candidate_id` that received vote in the current term (or None, if none exists.)
     pub voted_for: Option<usize>,
     /// The log entries, each entry contains command for state machine, and term when entry
     /// was received by leader.
-    pub log: Vec<LogRecord>
+    pub log: Vec<LogRecord>,
 }
-
 
 /// Volatile state on all servers. The properties
 /// `next_index` and `match_index` are only applicable
@@ -46,9 +44,8 @@ pub struct VolatileState {
     pub next_index: Option<HashMap<usize, usize>>,
     /// For each server, the index of the highest log entry
     /// known to be to replicated on that server (initialized to 0, increases monotonically).
-    pub match_index: Option<HashMap<usize, usize>>
+    pub match_index: Option<HashMap<usize, usize>>,
 }
-
 
 impl Default for PersistentState {
     fn default() -> Self {
@@ -56,7 +53,7 @@ impl Default for PersistentState {
             current_term: 0,
             voted_for: None,
             log: vec![],
-            participant_type: Election::default()
+            participant_type: Election::default(),
         }
     }
 }
@@ -67,6 +64,6 @@ impl Default for Election {
     }
 }
 
-/// The time that a follower waits for receiving communication 
+/// The time that a follower waits for receiving communication
 /// from a leader or candidate.
 pub const ELECTION_TIMEOUT: usize = 1;

@@ -19,5 +19,5 @@ pub struct Args {
 
     /// The path to the log file.
     #[clap(long, default_value = "./.log.gz")]
-    pub log_file: String
+    pub log_file: String,
 }
