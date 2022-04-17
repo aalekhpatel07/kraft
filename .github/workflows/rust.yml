@@ -1,0 +1,31 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Build a release version.
+      run: cargo build --release --verbose
+    - name: Upload the built binaries.
+      uses: actions/upload-artifact@v3.0.0
+      with:
+        name: server-binary
+        path: ./target/release/server
+        if-no-files-found: warn
+        retention-days: 7
+        
+    
