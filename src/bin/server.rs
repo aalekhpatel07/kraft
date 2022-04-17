@@ -35,20 +35,6 @@ fn parse_socket_and_id(s: &String) -> Result<(usize, SocketAddr), ParseError> {
         let socket_addr = socket_addr.parse::<SocketAddr>().expect("Couldn't parse socket address.");
         Ok((id, socket_addr))
     })
-    // if let Some((socket_addr, id)) = s.split_once(',') {
-
-        // (
-        //     id.parse::<usize>().expect(format!("Couldn't parse ID (usize): {:?}", id).as_str()), 
-        //     socket_addr.parse::<SocketAddr>().expect(format!("Couldn't parse socket address: {:?}", socket_addr).as_str())
-        // )
-    // }else {
-    //     Err(std::io::ErrorKind)
-    // }
-
-
-    // let id = 
-    
-
 }
 
 #[tokio::main]
@@ -65,9 +51,18 @@ async fn main() {
     .collect::<Vec<(usize, SocketAddr)>>();
 
     let server = {
-        Arc::new(tokio::sync::Mutex::new(Server::new(&args.port, args.id, remote_nodes)))
+        Arc::new(
+            tokio::sync::Mutex::new(
+                Server::new(
+                    args.port,
+                    args.id, 
+                    remote_nodes, 
+                    &args.log_file
+                )
+            )
+        )
     };
-
+    debug!("Server state: {:?}", server.clone());
     Server::start_server(server.clone()).await;
 }
 
@@ -119,12 +114,12 @@ mod tests {
         let mut stream = connect().await;
 
         let rpc_request_vote = RPCRequest::RequestVote(
-            request_vote::RequestVoteRequest::new(
-                0,
-                0,
-                0,
-                0
-            )
+            request_vote::RequestVoteRequest {
+                term: 0,
+                candidate_id: 0,
+                last_log_index: 0,
+                last_log_term: 0
+            }
         );
         
         let mut buf = Vec::new();

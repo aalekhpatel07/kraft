@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+// use std::net::SocketAddr;
 
 use clap::Parser;
 
@@ -11,9 +11,13 @@ pub struct Args {
 
     /// The port to use for server.
     #[clap(short, long)]
-    pub port: String,
+    pub port: u16,
 
     /// The remote nodes in this topology.
     #[clap(long)]
-    pub remote_node: Vec<String>
+    pub remote_node: Vec<String>,
+
+    /// The path to the log file.
+    #[clap(long, default_value = "./.log.gz")]
+    pub log_file: String
 }

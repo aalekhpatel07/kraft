@@ -62,7 +62,7 @@ async fn process(server: Arc<tokio::sync::Mutex<Server>>, stream: &mut TcpStream
 
 #[derive(Debug, Default, Clone)]
 pub struct Server {
-    pub port: String,
+    pub port: u16,
     pub id: usize,
     pub state: Arc<tokio::sync::Mutex<PersistentState>>,
     pub remote_nodes: Vec<(usize, SocketAddr)>,
@@ -71,9 +71,9 @@ pub struct Server {
 
 impl Server {
     
-    pub fn new(port: &str, id: usize, remote_nodes: Vec<(usize, SocketAddr)>) -> Self {
+    pub fn new(port: u16, id: usize, remote_nodes: Vec<(usize, SocketAddr)>) -> Self {
         Self {
-            port: port.to_string(),
+            port,
             id,
             state: Arc::new(tokio::sync::Mutex::new(PersistentState::default())),
             remote_nodes,
@@ -216,7 +216,7 @@ async fn main() {
     .collect::<Vec<(usize, SocketAddr)>>();
 
     let server = {
-        Arc::new(tokio::sync::Mutex::new(Server::new(&args.port, args.id, remote_nodes)))
+        Arc::new(tokio::sync::Mutex::new(Server::new(args.port, args.id, remote_nodes)))
     };
 
     // Start clients asynchronously.
