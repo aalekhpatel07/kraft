@@ -71,11 +71,12 @@ async fn main() {
 mod tests {
 
     use super::*;
-    use crate::*;
-    use kraft::{election::*, rpc::{RPCRequest, request_vote::RequestVoteRequest}};
+
+    use kraft::{election::*, rpc::{RPCRequest, request_vote::{RequestVoteRequest, self}, RPCResponse, append_entries}};
     use rmp_serde::Serializer;
     use serde::Serialize;
     use std::future::Future;
+    use log::{trace};
 
     use tokio::{net::{TcpStream, TcpListener}, io::AsyncReadExt, io::AsyncWriteExt};
 
@@ -97,7 +98,7 @@ mod tests {
         let observed_outputs = inputs.iter().map(parse_socket_and_id).map(|x| x.unwrap()).collect::<Vec<(usize, SocketAddr)>>();
         assert_eq!(expected_outputs, observed_outputs);
     }
-
+    
     #[test]
     fn test_parse_socket_and_id_invalid() {
 
@@ -109,6 +110,7 @@ mod tests {
         TcpStream::connect("192.168.1.113:9001").await.unwrap()
     }
 
+    #[ignore = "Requires a server setup, at least until we choose to mock it."]
     #[tokio::test]
     async fn test_server_understands_request_vote_rpc() {
         let mut stream = connect().await;
@@ -142,6 +144,7 @@ mod tests {
         assert!(matches!(result, RPCResponse::RequestVote(..)));
     }
 
+    #[ignore = "Requires a server setup, at least until we choose to mock it."]
     #[tokio::test]
     async fn test_server_understands_append_entries_rpc() {
         let mut stream = connect().await;

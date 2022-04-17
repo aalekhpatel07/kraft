@@ -162,6 +162,7 @@ impl Server {
 mod tests {
 
     use super::*;
+    use log::info;
     use simple_logger::SimpleLogger;
     use std::time::Duration;
 
