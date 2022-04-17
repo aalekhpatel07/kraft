@@ -72,13 +72,13 @@ mod tests {
 
     use super::*;
 
-    use kraft::{election::*, rpc::{RPCRequest, request_vote::{RequestVoteRequest, self}, RPCResponse, append_entries}};
+    use kraft::{rpc::{RPCRequest, request_vote::{self}, RPCResponse, append_entries}};
     use rmp_serde::Serializer;
     use serde::Serialize;
-    use std::future::Future;
+    
     use log::{trace};
 
-    use tokio::{net::{TcpStream, TcpListener}, io::AsyncReadExt, io::AsyncWriteExt};
+    use tokio::{net::{TcpStream}, io::AsyncReadExt, io::AsyncWriteExt};
 
     #[test]
     fn test_parse_socket_and_id() {
