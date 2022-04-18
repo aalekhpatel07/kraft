@@ -3,11 +3,11 @@ use std::{sync::Arc, net::{SocketAddr}, time::Duration};
 use rmp_serde::Serializer;
 use serde::Serialize;
 use tokio::{net::{TcpStream, TcpListener}, io::AsyncReadExt, io::AsyncWriteExt};
-use crate::{rpc::{self, RPCRequest, *}, election::VolatileState};
+use crate::{rpc::{self, RPCRequest, *}, election::VolatileState, storage::persistent_state::ReadWriteState};
 use crate::election::PersistentState;
 use log::{error, debug, trace};
 use std::fs::File;
-use crate::storage::persistent_state::ReadWritePersistentState;
+// use crate::storage::persistent_state::ReadWriteState;
 use futures::future::{Abortable, AbortHandle, AbortRegistration};
 use crate::rpc::heartbeat;
 
@@ -119,7 +119,7 @@ impl Server {
     pub async fn save_state(&self) -> Result<usize, std::io::Error> {
         let mut storage = File::create(&self.storage_path)?;
         let state_guard = self.state.lock().await;
-        let bytes_written = storage.write_persistent_state(&state_guard)?;
+        let bytes_written = storage.write_state(&state_guard.clone())?;
         // drop(state_guard);
         Ok(bytes_written)
     }
@@ -128,7 +128,7 @@ impl Server {
 
         let mut storage = File::open(&self.storage_path)?;
         let mut state_guard = self.state.lock().await;
-        let state = storage.read_persistent_state()?;
+        let state = storage.read_state().expect("Couldn't read state.");
         *state_guard = state;
         // drop(state_guard);
         Ok(state_guard.clone())
@@ -286,7 +286,7 @@ mod tests {
         };
 
         let mut file = File::create(OUT_FILE).expect("Unable to create file.");
-        let bytes_written = file.write_persistent_state(&state).expect("Could not write persistent state.");
+        let bytes_written = file.write_state(&state).expect("Could not write persistent state.");
         
         println!("{} bytes written to {}", bytes_written, OUT_FILE);
         state

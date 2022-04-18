@@ -18,6 +18,6 @@ pub struct Args {
     pub remote_node: Vec<String>,
 
     /// The path to the log file.
-    #[clap(long, default_value = "./.log.gz")]
+    #[clap(long, default_value = "/tmp/raft_log.gz")]
     pub log_file: String,
 }

@@ -173,6 +173,7 @@ mod tests {
         assert!(matches!(result, RPCResponse::AppendEntries(..)));
     }
 
+    #[ignore = "Requires a server setup, at least until we choose to mock it."]
     #[tokio::test]
     async fn test_server_sends_heartbeat() {
         SimpleLogger::new().init().unwrap();
@@ -196,6 +197,7 @@ mod tests {
         Server::send_heartbeat(server.clone()).await;
     }
     
+    #[ignore = "Requires a server setup, at least until we choose to mock it."]
     #[tokio::test]
     async fn test_server_sends_heartbeats_every_second_for_10_seconds() {
         SimpleLogger::new().init().unwrap();
@@ -237,6 +239,5 @@ mod tests {
                 warn!("AbortError: {:?}", err);
             }
         }
-
     }
 }
