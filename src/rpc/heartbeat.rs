@@ -1,8 +1,7 @@
-use crate::rpc::*;
 use crate::network::node::Server;
+use crate::rpc::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
 
 /// Invoked by leader to tell followers of its existence.
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
@@ -30,7 +29,6 @@ pub struct HeartbeatResponse {
     pub success: bool,
 }
 
-
 impl HeartbeatRequest {
     pub fn new(
         term: usize,
@@ -49,15 +47,10 @@ impl HeartbeatRequest {
     }
 }
 
-pub fn create(
-    _server: Arc<Mutex<Server>>
-) -> HeartbeatRequest {
+pub fn create(_server: Arc<Mutex<Server>>) -> HeartbeatRequest {
     HeartbeatRequest::default()
 }
 
-pub fn process(
-    _server: Arc<Mutex<Server>>,
-    _request: HeartbeatRequest,
-) -> HeartbeatResponse {
+pub fn process(_server: Arc<Mutex<Server>>, _request: HeartbeatRequest) -> HeartbeatResponse {
     HeartbeatResponse::default()
 }

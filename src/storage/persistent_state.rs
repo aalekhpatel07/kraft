@@ -1,21 +1,19 @@
-use crate::election::PersistentState;
-use crate::storage::state_machine;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use rmp_serde::Serializer;
 use serde::de::DeserializeOwned;
-use serde::{Serialize};
+use serde::Serialize;
 use std::io::Write;
 use std::io::{self, Read};
 use std::result;
 
 pub type Result<T> = result::Result<T, io::Error>;
 
-// There is a low-hanging fruit of genericizing 
-// the "gzipped + msgpacked reading/writing" 
+// There is a low-hanging fruit of genericizing
+// the "gzipped + msgpacked reading/writing"
 // over arbitrary rmp (de)serializable state.
-// I don't wanna do that right now because that 
+// I don't wanna do that right now because that
 // will end up introducing deserializer lifetimes
 // and I'm scared of lifetimes ;(
 
@@ -23,23 +21,20 @@ pub type Result<T> = result::Result<T, io::Error>;
 // https://stackoverflow.com/q/71909265/14045826
 
 /// The API to read/write a state.
-pub trait ReadWriteState<T> 
-{
+pub trait ReadWriteState<T> {
     /// Write the given persistent state to self.
-    fn write_state(&mut self, state: &T) -> Result<usize>;    
+    fn write_state(&mut self, state: &T) -> Result<usize>;
     /// Read a persistent state object from self.
     fn read_state(&mut self) -> result::Result<T, rmp_serde::decode::Error>;
 }
 
-
 /// Let any stateful struct that is serializable be serialized
 /// via messagepack and then gzipped before passing on to anything that writes.
-/// Let anything that allows read provide bytes that are first ungzipped 
+/// Let anything that allows read provide bytes that are first ungzipped
 /// and then deserialized via messagepack into a stateful struct.
 impl<S: Serialize + DeserializeOwned, T: io::Read + io::Write> ReadWriteState<S> for T {
-    
-    /// Serialize the given serialiable stateful struct 
-    /// with msgpack and then gz encode it before 
+    /// Serialize the given serialiable stateful struct
+    /// with msgpack and then gz encode it before
     /// passing it to a writer.
     fn write_state(&mut self, state: &S) -> Result<usize> {
         let mut buf = Vec::new();
@@ -69,22 +64,21 @@ impl<S: Serialize + DeserializeOwned, T: io::Read + io::Write> ReadWriteState<S>
     }
 }
 
-
 #[cfg(test)]
 mod tests {
 
     use super::*;
     use crate::election::Election;
+    use crate::election::PersistentState;
     use std::fs::File;
     use std::thread::sleep;
     use std::time::Duration;
     // use crate::storage::state_machine::{
-    //     CommitLog, 
-    //     Mutation, 
-    //     SetCommand, 
+    //     CommitLog,
+    //     Mutation,
+    //     SetCommand,
     //     DeleteCommand
     // };
-
 
     /// Test that we can write a gzipped msgpack stream to a file on disk
     /// and then read it back immediately without losing any data. In other words,
@@ -106,9 +100,7 @@ mod tests {
         println!("{} bytes written to {}", bytes_written, OUT_FILE);
 
         let mut file = File::open(OUT_FILE).expect("Unable to open file.");
-        let observed_state = file
-            .read_state()
-            .expect("Could not read persistent state");
+        let observed_state = file.read_state().expect("Could not read persistent state");
 
         assert_eq!(
             persistent_state, observed_state,
@@ -143,9 +135,7 @@ mod tests {
         println!("Woken up after {} seconds", WAIT_SECONDS);
 
         let mut file = File::open(OUT_FILE).expect("Unable to open file.");
-        let observed_state = file
-            .read_state()
-            .expect("Could not read persistent state");
+        let observed_state = file.read_state().expect("Could not read persistent state");
 
         assert_eq!(
             persistent_state, observed_state,

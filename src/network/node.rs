@@ -8,7 +8,7 @@ use crate::election::PersistentState;
 use log::{error, debug, trace};
 use std::fs::File;
 // use crate::storage::persistent_state::ReadWriteState;
-use futures::future::{Abortable, AbortHandle, AbortRegistration};
+
 use crate::rpc::heartbeat;
 
 
@@ -185,7 +185,7 @@ impl Server {
                     if let Ok(mut stream) = TcpStream::connect(node_addr).await {
                         
                         let mut buf = Vec::new();
-                        RPCRequest::Heartbeat(heartbeat_request.clone()).serialize(&mut Serializer::new(&mut buf)).unwrap();
+                        RPCRequest::Heartbeat(heartbeat_request).serialize(&mut Serializer::new(&mut buf)).unwrap();
                         stream.write_all(&mut buf).await.unwrap();
 
                         trace!("Heartbeat {:?} sent to Node ID: {:?} at {:?}", heartbeat_request.clone(), node_id, node_addr);

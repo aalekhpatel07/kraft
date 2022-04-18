@@ -79,7 +79,7 @@ mod tests {
     use serde::Serialize;
     
     use log::{trace, warn};
-    use futures::future::{AbortHandle, AbortRegistration, Abortable};
+    use futures::future::{AbortHandle, Abortable};
     use tokio::{net::{TcpStream}, io::AsyncReadExt, io::AsyncWriteExt};
 
     #[test]
