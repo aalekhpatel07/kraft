@@ -70,14 +70,16 @@ async fn main() {
 #[cfg(test)]
 mod tests {
 
+    use std::time::Duration;
+
     use super::*;
 
     use kraft::{rpc::{RPCRequest, request_vote::{self}, RPCResponse, append_entries}};
     use rmp_serde::Serializer;
     use serde::Serialize;
     
-    use log::{trace};
-
+    use log::{trace, warn};
+    use futures::future::{AbortHandle, AbortRegistration, Abortable};
     use tokio::{net::{TcpStream}, io::AsyncReadExt, io::AsyncWriteExt};
 
     #[test]
@@ -107,7 +109,7 @@ mod tests {
     }
 
     async fn connect() -> TcpStream {
-        TcpStream::connect("192.168.1.113:9001").await.unwrap()
+        TcpStream::connect("192.168.1.113:9000").await.unwrap()
     }
 
     #[ignore = "Requires a server setup, at least until we choose to mock it."]
@@ -169,5 +171,72 @@ mod tests {
 
         let result = rmp_serde::decode::from_slice::<RPCResponse>(&buf).unwrap();
         assert!(matches!(result, RPCResponse::AppendEntries(..)));
+    }
+
+    #[tokio::test]
+    async fn test_server_sends_heartbeat() {
+        SimpleLogger::new().init().unwrap();
+
+        let server = {
+            Arc::new(
+                tokio::sync::Mutex::new(
+                    Server::new(
+                        9000,
+                        0, 
+                        vec![
+                            // (1, "0.0.0.0:9000".parse::<SocketAddr>().unwrap()),
+                            (2, "192.168.1.113:9000".parse::<SocketAddr>().unwrap()),
+                        ],
+                        "/tmp/storage.gz"
+                    )
+                )
+            )
+        };
+        debug!("Server state: {:?}", server.clone());
+        Server::send_heartbeat(server.clone()).await;
+    }
+    
+    #[tokio::test]
+    async fn test_server_sends_heartbeats_every_second_for_10_seconds() {
+        SimpleLogger::new().init().unwrap();
+
+        let server = {
+            Arc::new(
+                tokio::sync::Mutex::new(
+                    Server::new(
+                        9000,
+                        0, 
+                        vec![
+                            (1, "0.0.0.0:9000".parse::<SocketAddr>().unwrap()),
+                            (2, "192.168.1.113:9000".parse::<SocketAddr>().unwrap()),
+                        ],
+                        "/tmp/storage.gz"
+                    )
+                )
+            )
+        };
+        debug!("Server state before sending heartbeats: {:?}", server.clone());
+
+
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        let future = Abortable::new(Server::send_heartbeats(server, Duration::from_secs(1)), abort_registration);
+        
+        tokio::spawn({
+            async move {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                abort_handle.abort();
+            }
+        });
+
+        match future.await {
+            Ok(_) => {
+                unreachable!("This is a potentially infinite heartbeat loop which may only ever return an AbortError. ");
+            },
+            Err(err) => {
+                warn!("Could not send heartbeat.");
+                warn!("AbortError: {:?}", err);
+            }
+        }
+
     }
 }

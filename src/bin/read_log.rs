@@ -1,4 +1,4 @@
-use kraft::storage::backend::ReadWritePersistentState;
+use kraft::storage::persistent_state::ReadWritePersistentState;
 use std::fs::File;
 
 use clap::Parser;

@@ -66,4 +66,4 @@ impl Default for Election {
 
 /// The time that a follower waits for receiving communication
 /// from a leader or candidate.
-pub const ELECTION_TIMEOUT: usize = 1;
+pub const ELECTION_TIMEOUT: usize = 5;

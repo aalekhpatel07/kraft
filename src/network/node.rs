@@ -1,4 +1,4 @@
-use std::{sync::Arc, net::{SocketAddr}};
+use std::{sync::Arc, net::{SocketAddr}, time::Duration};
 
 use rmp_serde::Serializer;
 use serde::Serialize;
@@ -7,7 +7,9 @@ use crate::{rpc::{self, RPCRequest, *}, election::VolatileState};
 use crate::election::PersistentState;
 use log::{error, debug, trace};
 use std::fs::File;
-use crate::storage::backend::ReadWritePersistentState;
+use crate::storage::persistent_state::ReadWritePersistentState;
+use futures::future::{Abortable, AbortHandle, AbortRegistration};
+use crate::rpc::heartbeat;
 
 
 pub async fn process(server: Arc<tokio::sync::Mutex<Server>>, stream: &mut TcpStream) {
@@ -60,6 +62,19 @@ pub async fn process(server: Arc<tokio::sync::Mutex<Server>>, stream: &mut TcpSt
                         stream.write_all(&mut buf).await.unwrap();
 
                     },
+                    RPCRequest::Heartbeat(heartbeat_rpc) => {
+                        debug!("Received HeartbeatRPC {:?}", heartbeat_rpc);
+
+                        let response = heartbeat::process(server.clone(), heartbeat_rpc);
+                        let wrapped_response = RPCResponse::Heartbeat(response);
+
+                        debug!("Response to send: {:?}", wrapped_response);
+
+                        let mut buf = Vec::new();
+                        wrapped_response.serialize(&mut Serializer::new(&mut buf)).unwrap();
+                        stream.write_all(&mut buf).await.unwrap();
+
+                    }
                     _ => {
                         error!("Couldn't identify the RPC: {:?}", rpc);
                     }
@@ -155,6 +170,50 @@ impl Server {
             });
         }
     }
+
+    pub async fn send_heartbeat(server: Arc<tokio::sync::Mutex<Server>>) {
+        let heartbeat_request = heartbeat::create(server.clone());
+
+        let server_guard = server.lock().await;
+        let remote_nodes = server_guard.remote_nodes.clone();
+
+        drop(server_guard);
+
+        for (node_id, node_addr) in remote_nodes {
+            tokio::spawn({
+                async move {
+                    if let Ok(mut stream) = TcpStream::connect(node_addr).await {
+                        
+                        let mut buf = Vec::new();
+                        RPCRequest::Heartbeat(heartbeat_request.clone()).serialize(&mut Serializer::new(&mut buf)).unwrap();
+                        stream.write_all(&mut buf).await.unwrap();
+
+                        trace!("Heartbeat {:?} sent to Node ID: {:?} at {:?}", heartbeat_request.clone(), node_id, node_addr);
+                    }
+                }
+            }).await.unwrap();
+        }
+        // let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        // let future = Abortable::new(async { 2 }, abort_registration);
+    }
+
+    pub async fn send_heartbeats(server: Arc<tokio::sync::Mutex<Server>>, duration: Duration) {
+        let mut interval = tokio::time::interval(duration);
+        let heartbeat_loop = async move {
+            loop {
+                interval.tick().await;
+                tokio::spawn({
+                    let server = server.clone();
+                    async move {
+                        Server::send_heartbeat(server).await;
+                    }
+                }).await.unwrap();
+            }
+        };
+
+        heartbeat_loop.await;
+    }
+
 }
 
 
