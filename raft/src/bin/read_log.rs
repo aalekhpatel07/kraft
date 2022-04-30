@@ -1,4 +1,4 @@
-use raft::{election::PersistentState, storage::persistent_state::ReadWriteState};
+use raft::storage::state::{persistent::State, raft_io::ReadWriteState};
 use std::fs::File;
 
 use clap::Parser;
@@ -13,7 +13,7 @@ pub struct Args {
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let mut file = File::open(args.log_file)?;
-    let state: PersistentState = file.read_state().expect("Could not read persistent state");
+    let state: State = file.read_state().expect("Could not read persistent state");
     println!("{:?}", state);
     Ok(())
 }
