@@ -4,8 +4,8 @@ use clap::StructOpt;
 
 
 
-use kraft::network::node::{Server};
-use kraft::cli::Args;
+use raft::network::node::{Server};
+use raft::cli::Args;
 use log::{debug};
 use simple_logger::SimpleLogger;
 
@@ -74,7 +74,7 @@ mod tests {
 
     use super::*;
 
-    use kraft::{rpc::{RPCRequest, request_vote::{self}, RPCResponse, append_entries}};
+    use raft::{rpc::{RPCRequest, request_vote::{self}, RPCResponse, append_entries}};
     use rmp_serde::Serializer;
     use serde::Serialize;
     

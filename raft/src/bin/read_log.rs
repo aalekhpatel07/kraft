@@ -1,4 +1,4 @@
-use kraft::{election::PersistentState, storage::persistent_state::ReadWriteState};
+use raft::{election::PersistentState, storage::persistent_state::ReadWriteState};
 use std::fs::File;
 
 use clap::Parser;

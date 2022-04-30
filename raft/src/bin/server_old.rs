@@ -2,10 +2,10 @@ use std::{sync::Arc, net::{SocketAddr}, collections::HashMap};
 
 use clap::StructOpt;
 use tokio::{net::{TcpStream, TcpListener}, io::AsyncReadExt, io::AsyncWriteExt};
-use kraft::election::*;
+use raft::election::*;
 
-// use kraft::rpc::*;
-use kraft::cli::Args;
+// use raft::rpc::*;
+use raft::cli::Args;
 use log::{error, debug, trace};
 use simple_logger::SimpleLogger;
 
