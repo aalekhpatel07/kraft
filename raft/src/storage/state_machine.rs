@@ -279,17 +279,7 @@ pub mod tests {
                     let query_cmd = query.command;
                     let expected_value = query.expected_value;
 
-                    let cmd = 
-                        match query_cmd {
-                            QueryCommand::GET(q) => {
-                                QueryCommand::GET(q)
-                            },
-                            _ => {
-                                unimplemented!("Only GET implemented for Query.");
-                            }
-                        };
-
-                    let value = db.query(cmd).expect("Could not query.");
+                    let value = db.query(query_cmd).expect("Could not query.");
 
                     assert_eq!(value.value, expected_value);
                     assert_eq!(snapshot, db.snapshot().expect("Could not capture snapshot"), "Snapshots don't match up.");
