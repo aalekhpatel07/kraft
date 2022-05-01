@@ -3,14 +3,17 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 
-pub trait StateMachine: {
+/// A generic behaviour for a State Machine that accepts a command that mutates it,
+/// or a query that only reads from it, and allows to generate a snapshot of its state
+/// that may be used to recover the state machine in any given state.
+pub trait StateMachine {
     /// A command type provided by an implementation of a state machine.
     /// This command should not mutate the state machine and only query it.
     type QueryCommand;
 
     /// A command type provided by an implementation of a state machine.
     /// This command may mutate the state machine.
-    type MutationCommand;
+    type MutationCommand: Serialize + DeserializeOwned;
 
     /// The response type returned by the state machine when a query or mutation is performed.
     type Response;
@@ -32,40 +35,48 @@ pub trait StateMachine: {
 }
 
 
-pub mod StateMachineImpls {
+pub mod state_machine_impls {
     use super::*;
     use std::collections::HashMap;
     use std::hash::Hash;
     use std::sync::{Arc, Mutex};
 
-    pub mod KeyValue {
+    pub mod key_value {
+        use serde_derive::{Deserialize, Serialize};
+
         use super::*;
         use std::fmt::Debug;
 
-        #[derive(Debug, Clone)]
-        pub struct KeyValueStore<K, V> {
-            inner: Arc<Mutex<HashMap<K, V>>>
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct KeyValueStore<K: Hash + Eq + PartialEq, V> {
+            pub(crate) inner: Arc<Mutex<HashMap<K, V>>>
         }
 
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Serialize, Deserialize)]
         pub struct GetCommand<K> {
             pub key: K
         }
 
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Serialize, Deserialize)]
         pub enum MutationCommand<K, V> {
-            PUT(PutCommand<K, V>)
+            PUT(PutCommand<K, V>),
+            DELETE(DeleteCommand<K>)
         }
 
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Serialize, Deserialize)]
         pub enum QueryCommand<K> {
             GET(GetCommand<K>)
         }
 
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Serialize, Deserialize)]
         pub struct PutCommand<K, V> {
             pub key: K,
             pub value: V
+        }
+
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct DeleteCommand<K> {
+            pub key: K
         }
 
         #[derive(Debug, Clone)]
@@ -73,21 +84,28 @@ pub mod StateMachineImpls {
             pub value: V
         }
 
-        impl<K, V> KeyValueStore<K, V>
+        impl<K: Hash + PartialEq + Eq, V> KeyValueStore<K, V>
         {
+            /// Create a new empty KeyValueStore with keys of type K, and values of type V.
             pub fn new() -> Self {
                 Self {
                     inner: Arc::new(Mutex::new(HashMap::new()))
                 }
             }
+            /// Create a new empty KeyValueStore with keys of type K, and values of type V.
+            pub fn empty() -> Self {
+                Self::new()
+            }
         }
 
         impl<K, V> KeyValueStore<K, V>
         where
-            K: Hash + PartialEq + Eq + Debug + Copy,
+            K: Hash + PartialEq + Eq + Debug + Clone,
             V: Clone
         {
-            fn get(&self, key: K) -> Result<V> {
+            /// Given a key, get its corresponding value from the store.
+            /// If the key does not exist, return an error.
+            pub(crate) fn get(&self, key: K) -> Result<V> {
                 let guard = self.inner.lock().unwrap();
                 if let Some(value) = guard.get(&key) {
                     Ok(value.clone())
@@ -95,13 +113,28 @@ pub mod StateMachineImpls {
                     Err(anyhow::Error::msg(format!("No key {:?} exists", &key)))
                 }
             }
-            fn put(&self, key: K, value: V) -> Result<V> {
+            /// Given a key, and a value, insert the pair into the store.
+            /// If a key existed previously, return the value corresponding to it.
+            /// Otherwise, return an error if this is the first time this key is inserted.
+            pub(crate) fn put(&self, key: K, value: V) -> Result<V> {
                 let mut guard = self.inner.lock().unwrap();
 
-                if let Some(previous_value) = guard.insert(key, value) {
+                if let Some(previous_value) = guard.insert(key.clone(), value) {
                     Ok(previous_value)
                 } else {
-                    Err(anyhow::Error::msg(format!("Did not have this key present {:?}.", &key)))
+                    Err(anyhow::Error::msg(format!("Did not have this key present {key:?}.")))
+                }
+            }
+            /// Given a key, delete it and its corresponding value from the store.
+            /// If the key existed, then return its corresponding value before deletion.
+            /// Otherwise, return an error since there was an attempt to delete a key that didn't exist.
+            pub(crate) fn delete(&self, key: K) -> Result<V> {
+                let mut guard = self.inner.lock().unwrap();
+                if let Some(previous_value) = guard.remove(&key) {
+                    return Ok(previous_value)
+                }
+                else {
+                    return Err(anyhow::Error::msg(format!("Key {key:?} does not exist.")))
                 }
             }
         }
@@ -109,7 +142,7 @@ pub mod StateMachineImpls {
 
         impl<K, V> StateMachine for KeyValueStore<K, V> 
         where
-            K: Hash + Serialize + DeserializeOwned + PartialEq + Eq + Copy + Debug,
+            K: Hash + Serialize + DeserializeOwned + PartialEq + Eq + Clone + Debug,
             V: Serialize + DeserializeOwned + Clone
         {
             type QueryCommand = QueryCommand<K>;
@@ -117,6 +150,8 @@ pub mod StateMachineImpls {
             type Response = Response<V>;
             type Snapshot = HashMap<K, V>;
 
+            /// Given a mutation command, apply the command to the state machine
+            /// and return an application specific response.
             fn apply(&self, command: Self::MutationCommand) -> Result<Self::Response> {
 
                 match command {
@@ -128,12 +163,20 @@ pub mod StateMachineImpls {
                             value
                         })
                     },
+                    MutationCommand::DELETE(cmd) => {
+                        let value = self.delete(cmd.key)?;
+                        Ok(Self::Response {
+                            value
+                        })
+                    },
                     _ => {
-                        unreachable!("Only PUT is implemented for a Mutation Command.")
+                        unreachable!("Only PUT and DELETE are implemented as a Mutation Command.")
                     }
                 }
             }
 
+            /// Given a query command, query the state machine with the given command
+            /// and return an application specific response.
             fn query(&self, command: Self::QueryCommand) -> Result<Self::Response> {
                 match command {
                     QueryCommand::GET(cmd) => {
@@ -145,15 +188,18 @@ pub mod StateMachineImpls {
 
                     },
                     _ => {
-                        unreachable!("Only GET is implemented for a Query Command.")
+                        unreachable!("Only GET is implemented as a Query Command.")
                     }
                 }
             }
 
+            /// Capture the state of the state machine into a serializable representation.
             fn snapshot(&self) -> Result<Self::Snapshot> {
                 Ok(self.inner.lock().unwrap().clone())
             }
 
+            /// Given a particular state of the machine, update the state of self to match
+            /// the given state.
             fn restore_from_snapshot(&self, snapshot: Self::Snapshot) -> Result<()> {
                 let mut guard = self.inner.lock().unwrap();
                 *guard = snapshot;
@@ -167,111 +213,153 @@ pub mod StateMachineImpls {
 #[cfg(test)]
 pub mod tests {
 
-    use super::StateMachineImpls::KeyValue::*;
+    use serde_derive::{Serialize, Deserialize};
+    use serde_json::Value;
+    use std::hash::Hash;
+    use std::fmt::Debug;
+
+    use super::state_machine_impls::key_value::*;
     use super::StateMachine;
     use log::{debug, info, error, warn};
     use simple_logger::SimpleLogger;
     use std::collections::HashMap;
+    use serde::Serialize;
+    use serde::de::DeserializeOwned;
 
-
-    fn init() -> KeyValueStore<usize, String> {
+    /// Set up logging and other things
+    /// that need to run at the beginning of every test.
+    fn initialize() {
         SimpleLogger::new().init().unwrap();
-        KeyValueStore::new()
     }
 
-    #[test]
-    fn stuff() {
-        let machine = init();
-
-        let put1 = PutCommand {
-            key: 2usize,
-            value: "Hello!".to_owned()
-        };
-
-        let get1 = GetCommand {
-            key: 2usize
-        };
-
-        let response = 
-            machine
-                .apply(MutationCommand::PUT(put1))
-                .expect_err("The key was inserted for the first time.");
-
-        info!("response: {response:?}");
-
-        let response = machine.query(QueryCommand::GET(get1)).expect("Could not GET");
-        info!("response: {response:?}");
-        // machine
-        let snapshot = machine.snapshot().expect("Could not create snapshot of empty db.");
-
-        info!("Snapshot: {snapshot:?}");
-    }
-
-    #[derive(Debug, Clone)]
+    /// A test data structure that wraps the query command
+    /// and attaches an expected value to it.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct TestQueryCommand<K, V> {
         command: QueryCommand<K>,
         expected_value: V
     }
 
-    #[derive(Debug, Clone)]
+    /// A test data structure that wraps the mutation command
+    /// and attaches an expected value to it.
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     pub struct TestMutationCommand<K, V> {
         command: MutationCommand<K, V>,
         expected_value: V
     }
 
+    /// Enumerable command types
+    /// that may be sent to a state machine.
     pub enum Command<K, V> {
         Query(TestQueryCommand<K, V>),
         Mutation(TestMutationCommand<K, V>)
     }
 
 
-    pub fn put(key: usize, value: &str, expected_value: &str) -> Command<usize, String> {
+    pub fn put<K, V>(key: K, value: V, expected_value: V) -> Command<K, V> {
         Command::Mutation(
             TestMutationCommand { 
                 command: MutationCommand::PUT(
-                    PutCommand { key, value: value.to_owned() }
+                    PutCommand { key, value }
                 ), 
-                expected_value: expected_value.to_owned()
+                expected_value
             }
         )
     }
 
-    pub fn get(key: usize, expected_value: &str) -> Command<usize, String> {
+    pub fn delete<K, V>(key: K, expected_value: V) -> Command<K, V> {
+        Command::Mutation(
+            TestMutationCommand { 
+                command: MutationCommand::DELETE(
+                    DeleteCommand { key }
+                ), 
+                expected_value
+            }
+        )
+    }
+
+    pub fn get<K, V>(key: K, expected_value: V) -> Command<K, V> {
         Command::Query(
             TestQueryCommand { 
                 command: QueryCommand::GET(
                     GetCommand { key }
                 ), 
-                expected_value: expected_value.to_owned()
+                expected_value
             }
         )
     }
 
-    /// TODO: Write a macro for this to clean up a lil bit.
+    /// Generate a log of entries and the state of the database after
+    /// each log entry is applied to it.
     fn get_command_log_and_state_pairs() -> Vec<(Command<usize, String>, HashMap<usize, String>)> {
 
         let command_log: Vec<(Command<usize, String>, HashMap<usize, String>)> = vec![
             (
-                put(1usize, "a", ""),
-                HashMap::from([(1usize, "a".to_owned())])
+                put(1, "a".to_owned(), "".to_owned()),
+                HashMap::from([(1, "a".to_owned())])
             ),
             (
-                put(1usize, "b", "a"),
-                HashMap::from([(1usize, "b".to_owned())])
+                put(1, "b".to_owned(), "a".to_owned()),
+                HashMap::from([(1, "b".to_owned())])
             ),
             (
-                get(1usize, "b"),
-                HashMap::from([(1usize, "b".to_owned())])
+                get(1, "b".to_owned()),
+                HashMap::from([(1, "b".to_owned())])
+            ),
+            (
+                put(2, "a".to_owned(), "".to_owned()),
+                HashMap::from([(1, "b".to_owned()), (2, "a".to_owned())])
+            ),
+            (
+                delete(1, "b".to_owned()),
+                HashMap::from([(2, "a".to_owned())])
+            ),
+            (
+                delete(1, "".to_owned()),
+                HashMap::from([(2, "a".to_owned())])
+            ),
+            (
+                delete(2, "a".to_owned()),
+                HashMap::from([])
             )
         ];
         command_log
     }
 
-    #[test]
-    fn test_command_log() {
-        let command_log = get_command_log_and_state_pairs();
 
-        let db: KeyValueStore<usize, String> = KeyValueStore::new();
+    fn get_command_log_and_state_pairs_json() -> Vec<(Command<usize, serde_json::Value>, HashMap<usize, serde_json::Value>)> {
+
+        let some_obj = r#"
+        {
+            "name": "John Doe",
+            "age": 43,
+            "phones": [
+                "12345",
+                "67890"
+            ]
+        }
+        "#;
+
+        let v: serde_json::Value = serde_json::from_str(some_obj).unwrap();
+
+        let empty_object: serde_json::Value = serde_json::json!(null);
+        debug!("{v:?}");
+
+        let command_log: Vec<(Command<usize, serde_json::Value>, HashMap<usize, serde_json::Value>)> = vec![
+            (
+                put(1, v.clone(), empty_object),
+                HashMap::from([(1, v)])
+            )
+        ];
+        command_log
+    }
+
+    fn verify_command_logs<K, V>(command_log: Vec<(Command<K, V>, HashMap<K, V>)>) 
+    where
+        K: Hash + Serialize + DeserializeOwned + PartialEq + Eq + Copy + Debug,
+        V: Serialize + DeserializeOwned + Clone + PartialEq + Debug
+    {
+        let db = KeyValueStore::new();
 
         for (command, snapshot) in command_log {
             match command {
@@ -283,6 +371,7 @@ pub mod tests {
 
                     assert_eq!(value.value, expected_value);
                     assert_eq!(snapshot, db.snapshot().expect("Could not capture snapshot"), "Snapshots don't match up.");
+                    debug!("Snapshot: {snapshot:?}");
 
                 },
 
@@ -295,8 +384,11 @@ pub mod tests {
                             MutationCommand::PUT(PutCommand { key, value }) => {
                                 (MutationCommand::PUT(PutCommand {key, value}), QueryCommand::GET(GetCommand { key }))
                             },
+                            MutationCommand::DELETE(DeleteCommand { key }) => {
+                                (MutationCommand::DELETE(DeleteCommand { key }), QueryCommand::GET(GetCommand { key }))
+                            },
                             _ => {
-                                unimplemented!("Only PUT implemented for mutation.");
+                                unimplemented!("Only PUT and DELETE are implemented for mutation.");
                             }
                         };
 
@@ -307,272 +399,31 @@ pub mod tests {
                         assert_eq!(previous_value.value, expected_value);
 
                     } else {
-                        // This should only happen if this is the first time we're inserting a key for this PUT.
-                        assert!(key_did_not_exist);
+                        // This should only happen if:
+                        // this is the first time we're inserting a key for this PUT,
+                        // or,
+                        // we tried to DELETE a key that did not exist.
+                        // 
+                        assert!(key_did_not_exist, "Key existed but still the mutating \"apply\" call on the state machine failed.");
                     }
 
                     assert_eq!(snapshot, db.snapshot().expect("Could not capture snapshot"), "Snapshots don't match up.");
-                    
+                    debug!("Snapshot: {snapshot:?}");
                 }
             }
         }
     }
+
+    #[test]
+    fn test_command_log_json() {
+        initialize();
+        let command_log = get_command_log_and_state_pairs_json();
+        verify_command_logs(command_log);
+    }
+
+    #[test]
+    fn test_command_log() {
+        let command_log = get_command_log_and_state_pairs();
+        verify_command_logs(command_log);
+    }
 }
-
-// use serde_derive::{Deserialize, Serialize};
-
-// pub trait Commit<E = std::io::Error> {
-//     fn commit(&self) -> Result<(), E>;
-// }
-
-// #[derive(Clone, Debug, Default)]
-// pub struct KeyValueStorage<K, V> {
-//     pub storage_path: String,
-//     pub uncommitted: Vec<Mutation<K, V>>,
-//     pub commit_log: Vec<Mutation<K, V>>,
-//     pub state: HashMap<K, V>,
-// }
-
-// #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-// pub enum Mutation<K, V> {
-//     SET(SetCommand<K, V>),
-//     DELETE(DeleteCommand<K>),
-// }
-
-// #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-// pub struct SetCommand<K, V> {
-//     pub key: K,
-//     pub value: V,
-// }
-
-// #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-// pub struct DeleteCommand<K> {
-//     pub key: K,
-// }
-
-// #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-// pub struct CommitLog<K, V> {
-//     pub mutations: Vec<Mutation<K, V>>,
-// }
-
-// /// Let's just do a comparison based on the time
-// /// instant since it is guaranteed to be monotonic
-// /// and we're ensuring that only one commit log is generated
-// /// at any given point in time.
-// // impl<K, V> PartialEq for CommitLog<K, V>
-// //     where
-// //         K: Clone + Hash + Eq
-// // {
-// //     fn eq(&self, other: &Self) -> bool {
-// //         self.instant.eq(&other.instant)
-// //     }
-// // }
-
-// // impl<K, V> Eq for CommitLog<K, V>
-// //     where
-// //         K: Clone + Hash + Eq
-// // {
-// // }
-
-// // impl<K, V> PartialOrd for CommitLog<K, V>
-// //     where
-// //         K: Clone + Hash + Eq
-// // {
-// //     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-// //         self.instant.partial_cmp(&other.instant)
-// //     }
-// // }
-
-// /// Since PartialOrd is provably infallible
-// /// if we base the comparison on the instant,
-// /// we can safely unwrap it to get Ord for free.
-// // impl<K, V> Ord for CommitLog<K, V>
-// //     where
-// //         K: Clone + Hash + Eq
-// // {
-// //     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-// //         self.partial_cmp(other).unwrap()
-// //     }
-// // }
-
-// pub trait KeyValueTrait<K, V> // where
-// //     K: Hash + Clone + Eq,
-// {
-//     fn set(&self, key: K, value: V) -> Option<V>;
-//     fn get(&self, key: K) -> Option<V>;
-//     fn delete(&self, key: K) -> Option<V>;
-//     fn list(&self) -> Option<Vec<(K, V)>>;
-// }
-
-// impl<K, V> KeyValueStorage<K, V>
-// where
-//     K: Clone + Hash + Eq,
-// {
-//     pub fn apply(&mut self) {}
-// }
-
-// impl<K, V, E> Commit<E> for KeyValueStorage<K, V>
-// where
-//     K: Clone + Hash + Eq,
-// {
-//     fn commit(&self) -> Result<(), E> {
-//         todo!()
-//     }
-// }
-
-// // #[derive(Clone, Debug)]
-// // pub enum KeyValueStoreCommand<K, V> {
-// //     GET(GetCommand<K>),
-// //     ALL(AllCommand)
-// // }
-
-// // #[derive(Debug, Clone)]
-// // pub enum KeyValueStoreQuery<K: Key + Clone + Hash + Eq> {
-// //     GET(GetCommand<K>),
-// //     LIST(ListCommand)
-// // }
-
-// // #[derive(Clone, Debug)]
-// // pub enum KeyValueStoreMutation<K: Key + Clone + Hash + Eq, V> {
-// //     SET(SetCommand<K, V>),
-// // }
-
-// // #[derive(Debug, Clone)]
-// // pub enum KeyValueStoreCommand<K: Key + Clone + Hash + Eq, V> {
-// //     KeyValueStoreMutation(KeyValueStoreMutation<K, V>),
-// //     KeyValueStoreQuery(KeyValueStoreQuery<K>),
-// // }
-
-// // #[derive(Clone, Debug)]
-// // pub struct SetCommand<K: Key + Clone + Hash + Eq, V> {
-// //     pub key: K,
-// //     pub value: V
-// // }
-
-// // #[derive(Clone, Debug)]
-// // pub struct GetCommand<K: Key + Clone> {
-// //     pub key: K
-// // }
-
-// // pub trait Key{}
-
-// // impl<K: Hash + Eq + Clone> Key for K {}
-// // // pub trait SetCommand<K, V> {
-// // //     pub type Output = Option<>
-// // // }
-
-// // #[derive(Clone, Debug)]
-// // pub struct ListCommand;
-
-// // #[derive(Clone, Debug)]
-// // pub struct KeyValueStorage<K: Key + Clone, V>(HashMap<K, V>);
-
-// // impl<K: Key + Clone + Eq + Hash, V> KeyValueStorage<K, V> {
-// //     pub fn transition(&mut self, mutation: KeyValueStoreMutation<K, V>) {
-// //         match mutation {
-// //             KeyValueStoreMutation::SET(set) => {
-// //                 self.0.insert(set.key, set.value).unwrap();
-// //             },
-// //             _ => {}
-// //         }
-// //     }
-// // }
-
-// // #[derive(Clone, Debug)]
-// // pub struct KeyValueStateMachine<K: Key + Clone + Hash + Eq, V> {
-// //    pub uncommitted: Arc<Mutex<Vec<KeyValueStoreCommand<K, V>>>>,
-// //    pub commit_log: Arc<Mutex<Vec<KeyValueStoreCommand<K, V>>>>,
-// //    pub state: Arc<Mutex<KeyValueStorage<K, V>>>
-// // }
-
-// // pub trait KeyValueStorageImpl<K: Key + Hash + Eq, V> {
-// //     type STATE;
-
-// //     fn set(&self, key: K, value: V) -> Option<V>;
-// //     fn get(&self, key: K) -> Option<V>;
-// //     fn list(&self) -> Option<Self::STATE>;
-// // }
-
-// // impl<K: Key + Clone + Hash + Eq, V: Clone> KeyValueStateMachine<K, V> {
-// //     // pub fn process(&self, command: KeyValueStoreCommand<K, V>) {
-// //     //     match command {
-// //     //         KeyValueStoreCommand::GET(get) => {
-
-// //     //             // old_state.insert(set.key.clone(), set.value.clone());
-// //     //         },
-// //     //         KeyValueStoreCommand::ALL(all) => {
-// //     //             // old_state.insert(set.key.clone(), set.value.clone());
-// //     //         },
-// //     //         other_command => {
-// //     //             let mut uncommitted = self.uncommitted.lock().unwrap();
-// //     //             uncommitted.push(other_command);
-// //     //         }
-// //     //     }
-// //     // }
-// //     // pub fn apply(&self, command: &KeyValueStoreCommand<K, V>) {
-// //     //     match command {
-// //     //         KeyValueStoreCommand::KeyValueStoreMutation(mutation) => {
-// //     //             match mutation {
-// //     //                 KeyValueStoreMutation::SET(set) => {
-// //     //                     self.state.lock().unwrap().0.insert(set.key.clone(), set.value.clone());
-// //     //                     self.commit_log.lock().unwrap().push(command.clone());
-// //     //                 },
-// //     //                 _ => {}
-// //     //             }
-// //     //         },
-// //     //         KeyValueStoreCommand::KeyValueStoreQuery(query) => {
-// //     //             match query  {
-// //     //                 KeyValueStoreQuery::GET(get) => {
-// //     //                     self.state.lock().unwrap().0.insert(set.key.clone(), set.value.clone());
-// //     //                     self.commit_log.lock().unwrap().push(command.clone());
-
-// //     //                 },
-// //     //                 KeyValueStoreQuery::LIST(list) => {
-
-// //     //                 },
-
-// //     //             }
-// //     //         }
-
-// //     //         _ => {}
-// //     //     }
-// //     // }
-
-// //     // pub fn apply_all(&self, commands: &[KeyValueStoreCommand<K, V>]) -> KeyValueStorage<K, V> {
-// //     //     let mut old_state = self.state.lock().unwrap().clone();
-
-// //     //     commands
-// //     //     .iter()
-// //     //     .for_each( |command|  {
-// //     //         self.transition(command)
-// //     //     });
-// //     //     old_state
-// //     // }
-// // }
-
-// // impl<K: Key + Clone + Hash + Eq, V> KeyValueStorageImpl<K, V> for KeyValueStateMachine<K, V> {
-// //     type STATE = KeyValueStorage<K, V>;
-
-// //     fn set(&self, key: K, value: V) -> Option<V> {
-// //         todo!()
-// //     }
-
-// //     fn get(&self, key: K) -> Option<V> {
-
-// //         todo!()
-// //     }
-
-// //     fn list(&self) -> Option<Self::STATE> {
-// //         todo!()
-// //     }
-// // }
-
-// // impl<K: Key + Clone + Hash + Eq, V: Clone, E> Commit<E> for KeyValueStateMachine<K, V> {
-// //     fn commit(&self) -> Result<(), E> {
-// //         let uncommitted = self.uncommitted.lock().unwrap().clone();
-// //         let new_state = self.apply_all(&uncommitted);
-// //         *self.state.lock().unwrap() = new_state;
-
-// //         Ok(())
-// //     }
-// // }

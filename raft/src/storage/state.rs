@@ -60,9 +60,11 @@ pub mod raft_io {
 pub mod persistent {
     use serde_derive::{Deserialize, Serialize};
     use crate::node::NodeType;
+
     
     pub type StateMachineCommand = String;
-    pub type LogRecord = (StateMachineCommand, usize);
+    pub type Term = usize;
+    pub type LogRecord = (StateMachineCommand, Term);
 
     /// Updated on stable storage before responding to RPCs.
     #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -74,12 +76,14 @@ pub mod persistent {
         pub current_term: usize,
         /// The `candidate_id` that received vote in the current term (or None, if none exists.)
         pub voted_for: Option<usize>,
+
         /// The log entries, each entry contains command for state machine, and term when entry
         /// was received by leader.
         pub log: Vec<LogRecord>,
     }
     
-    impl Default for State {
+    impl Default for State
+    {
         fn default() -> Self {
             Self {
                 current_term: 0,
@@ -139,6 +143,7 @@ mod tests {
     use std::thread::sleep;
     use std::time::Duration;
     use super::raft_io::*;
+    use crate::storage::state_machine::state_machine_impls::key_value::*;
     // use crate::storage::state_machine::{
     //     CommitLog,
     //     Mutation,
@@ -151,6 +156,9 @@ mod tests {
     /// test for persistence.
     #[test]
     pub fn test_write_and_read_persistent_state() {
+
+        // let key_value_store = KeyValueStore::new();
+
         const OUT_FILE: &str = "/tmp/.storage.gz";
         let persistent_state = State {
             participant_type: NodeType::Candidate,
@@ -158,6 +166,7 @@ mod tests {
             voted_for: Some(3),
             log: vec![("Some string".to_owned(), 0)],
         };
+
         let mut file = File::create(OUT_FILE).expect("Unable to create file.");
         let bytes_written = file
             .write_state(&persistent_state)
