@@ -207,11 +207,6 @@ pub mod state_machine_impls {
             }
         }
     }
-
-    #[cfg(test)]
-    pub mod tests {
-
-    }
 }
 
 
