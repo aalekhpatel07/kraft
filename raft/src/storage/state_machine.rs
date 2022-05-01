@@ -207,6 +207,11 @@ pub mod state_machine_impls {
             }
         }
     }
+
+    #[cfg(test)]
+    pub mod tests {
+
+    }
 }
 
 
@@ -225,6 +230,7 @@ pub mod tests {
     use std::collections::HashMap;
     use serde::Serialize;
     use serde::de::DeserializeOwned;
+    use crate::utils::test_utils::set_up_logging;
 
     /// Set up logging and other things
     /// that need to run at the beginning of every test.
@@ -416,14 +422,18 @@ pub mod tests {
 
     #[test]
     fn test_command_log_json() {
-        initialize();
+        set_up_logging();
         let command_log = get_command_log_and_state_pairs_json();
         verify_command_logs(command_log);
     }
 
     #[test]
     fn test_command_log() {
+        set_up_logging();
         let command_log = get_command_log_and_state_pairs();
         verify_command_logs(command_log);
     }
+
+
+
 }

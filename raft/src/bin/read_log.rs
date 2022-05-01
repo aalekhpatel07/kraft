@@ -13,7 +13,7 @@ pub struct Args {
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let mut file = File::open(args.log_file)?;
-    let state: State = file.read_state().expect("Could not read persistent state");
+    let state: State<(String, usize)> = file.read_state().expect("Could not read persistent state");
     println!("{:?}", state);
     Ok(())
 }

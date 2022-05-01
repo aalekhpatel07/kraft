@@ -4,15 +4,17 @@ use proto::raft::{
 };
 use tonic::{Request, Response, Status};
 use crate::node::Node;
+use log::{info, trace, debug};
 
 
-pub async fn append_entries(node: &Node, request: Request<AppendEntriesRequest>) -> Result<Response<AppendEntriesResponse>, Status> {
-    println!("Got a request: {:?}", request);
+pub async fn append_entries<L: Clone>(node: &Node<L>, request: Request<AppendEntriesRequest>) -> Result<Response<AppendEntriesResponse>, Status> {
+    info!("Got a request: {:?}", request);
 
     let reply = AppendEntriesResponse {
         term: 0,
         success: false
     };
-
-    Ok(Response::new(reply))
+    let response = Response::new(reply);
+    info!("About to respond with: {response:?}");
+    Ok(response)
 }

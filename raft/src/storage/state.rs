@@ -68,7 +68,7 @@ pub mod persistent {
 
     /// Updated on stable storage before responding to RPCs.
     #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-    pub struct State {
+    pub struct State<L: Clone> {
         /// The kind of the election entity that the current node is assigned.
         pub participant_type: NodeType,
         /// The latest term server has seen (initialized to 0 on first boot, increases
@@ -79,10 +79,10 @@ pub mod persistent {
 
         /// The log entries, each entry contains command for state machine, and term when entry
         /// was received by leader.
-        pub log: Vec<LogRecord>,
+        pub log: Vec<L>,
     }
     
-    impl Default for State
+    impl<L: Clone> Default for State<L>
     {
         fn default() -> Self {
             Self {
@@ -99,6 +99,8 @@ pub mod volatile {
     use serde_derive::{Deserialize, Serialize};
     use std::collections::HashMap;
 
+    use crate::node::NodeMetadata;
+
     #[derive(Default, Debug, Clone, Serialize, Deserialize)]
     pub struct LeaderState {
         /// The index of the highest log entry
@@ -110,10 +112,10 @@ pub mod volatile {
         pub last_applied: usize,
         /// For each server, the index of the next log entry
         /// to send to that server (initialized to leader's last log index + 1).
-        pub next_index: HashMap<usize, usize>,
+        pub next_index: HashMap<usize, Option<usize>>,
         /// For each server, the index of the highest log entry
         /// known to be to replicated on that server (initialized to 0, increases monotonically).
-        pub match_index: HashMap<usize, usize>,
+        pub match_index: HashMap<usize, Option<usize>>,
 
     }
     /// Volatile state on all servers. The properties
@@ -129,6 +131,58 @@ pub mod volatile {
         /// The index of the highest log entry applied to
         /// state machine (initialized to 0, increases monotonically).
         pub last_applied: usize,
+    }
+
+    impl LeaderState {
+        pub fn servers(self, servers: &[NodeMetadata]) -> Self {
+            let mut next_index: HashMap<usize, Option<usize>> = HashMap::new();
+            let mut match_index: HashMap<usize, Option<usize>> = HashMap::new();
+            
+            servers
+            .iter()
+            .for_each(|server| {
+                next_index.insert(server.id, None);
+                match_index.insert(server.id, None);
+            });
+            Self {
+                commit_index: self.commit_index,
+                last_applied: self.last_applied,
+                next_index,
+                match_index
+            }
+        }
+    }
+
+    impl From<NonLeaderState> for LeaderState {
+        fn from(state: NonLeaderState) -> Self {
+            Self {
+                commit_index: state.commit_index,
+                last_applied: state.last_applied,
+                next_index: HashMap::new(),
+                match_index: HashMap::new()
+            }
+        }
+    }
+
+    impl From<LeaderState> for NonLeaderState {
+        fn from(state: LeaderState) -> Self {
+            Self {
+                commit_index: state.commit_index,
+                last_applied: state.last_applied
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub enum VolatileState {
+        Leader(LeaderState),
+        NonLeader(NonLeaderState)
+    }
+
+    impl Default for VolatileState {
+        fn default() -> Self {
+            Self::NonLeader(NonLeaderState::default())
+        }
     }
 
 }
