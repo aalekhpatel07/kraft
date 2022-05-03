@@ -3,11 +3,15 @@ use proto::raft::{
     HeartbeatResponse,
 };
 use tonic::{Request, Response, Status};
-use crate::node::Node;
+use crate::{node::Node, storage::state::persistent::LogEntry};
 use log::{info, trace, debug};
 
 
-pub async fn heartbeat<L: Clone>(node: &Node<L>, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> {
+pub async fn heartbeat<L>(node: &Node<L>, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> 
+where
+    L: LogEntry + Clone
+{
+
     debug!("Got a request: {:?}", request);
 
     let reply = HeartbeatResponse {

@@ -58,19 +58,77 @@ pub mod raft_io {
 
 
 pub mod persistent {
+    use serde::de::DeserializeOwned;
     use serde_derive::{Deserialize, Serialize};
     use crate::node::NodeType;
+    // use crate::node::LogEntry;
+    use crate::storage::state_machine::StateMachine;
 
     
-    pub type StateMachineCommand = String;
-    pub type Term = usize;
-    pub type LogRecord = (StateMachineCommand, Term);
+    // pub type StateMachineCommand = String;
+    // pub type Term = usize;
+    // pub type LogRecord = (StateMachineCommand, Term);
+
+    pub trait LogEntry {
+        type Command;
+
+        fn term(&self) -> usize;
+        fn command(&self) -> Self::Command;
+    }
+
+    #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    pub struct LogEntryImpl<T> {
+        pub term: usize,
+        pub command: T
+    }
+
+    impl<T> LogEntry for LogEntryImpl<T> 
+    where
+        T: Clone
+    {
+        type Command = T;
+
+        fn command(&self) -> Self::Command {
+            self.command.clone()   
+        }
+        fn term(&self) -> usize {
+            self.term
+        }
+    }
+
+    impl<T> From<(usize, T)> for LogEntryImpl<T> 
+    where
+        T: Clone
+    {
+        fn from(item: (usize, T)) -> Self {
+            Self {
+                term: item.0,
+                command: item.1
+            }
+        }
+    }
+
+    impl<T> LogEntry for (usize, T) 
+    where
+        T: Clone
+    {
+        type Command = T;
+        fn command(&self) -> Self::Command {
+            self.1.clone()
+        }
+        fn term(&self) -> usize {
+            self.0   
+        }
+    }
 
     /// Updated on stable storage before responding to RPCs.
     #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-    pub struct State<L: Clone> {
-        /// The kind of the election entity that the current node is assigned.
-        pub participant_type: NodeType,
+    pub struct State<T> 
+    where
+        T: Clone + LogEntry,
+    {
+        // /// The kind of the election entity that the current node is assigned.
+        // pub participant_type: NodeType,
         /// The latest term server has seen (initialized to 0 on first boot, increases
         /// monotonically.)
         pub current_term: usize,
@@ -79,20 +137,23 @@ pub mod persistent {
 
         /// The log entries, each entry contains command for state machine, and term when entry
         /// was received by leader.
-        pub log: Vec<L>,
+        pub log: Vec<T>,
     }
     
-    impl<L: Clone> Default for State<L>
+    impl<T> Default for State<T>
+    where
+        T: LogEntry + Clone
     {
         fn default() -> Self {
             Self {
                 current_term: 0,
                 voted_for: None,
                 log: vec![],
-                participant_type: NodeType::default(),
+                // participant_type: NodeType::default(),
             }
         }
     }
+
 }
 
 pub mod volatile { 
@@ -192,12 +253,13 @@ pub mod volatile {
 mod tests {
 
     use crate::node::NodeType;
-    use crate::storage::state::persistent::State;
+    use crate::storage::state::persistent::{State, LogEntryImpl};
     use std::fs::File;
     use std::thread::sleep;
     use std::time::Duration;
     use super::raft_io::*;
     use crate::storage::state_machine::state_machine_impls::key_value::*;
+    use super::persistent::LogEntry;
     // use crate::storage::state_machine::{
     //     CommitLog,
     //     Mutation,
@@ -214,11 +276,11 @@ mod tests {
         // let key_value_store = KeyValueStore::new();
 
         const OUT_FILE: &str = "/tmp/.storage.gz";
-        let persistent_state = State {
-            participant_type: NodeType::Candidate,
+        let persistent_state: State<LogEntryImpl<String>> = State {
+            // participant_type: NodeType::Candidate,
             current_term: 2,
             voted_for: Some(3),
-            log: vec![("Some string".to_owned(), 0)],
+            log: vec![LogEntryImpl { term: 0, command: "".to_owned() }],
         };
 
         let mut file = File::create(OUT_FILE).expect("Unable to create file.");
@@ -232,7 +294,8 @@ mod tests {
         let observed_state = file.read_state().expect("Could not read persistent state");
 
         assert_eq!(
-            persistent_state, observed_state,
+            persistent_state, 
+            observed_state,
             "Persistent state is different from observed state."
         );
     }
@@ -243,11 +306,11 @@ mod tests {
     #[test]
     pub fn test_write_and_read_persistent_state_after_a_while() {
         const OUT_FILE: &str = "/tmp/foo_wait.gz";
-        let persistent_state = State {
-            participant_type: NodeType::Candidate,
+        let persistent_state: State<(usize, Vec<u8>)> = State {
+            // participant_type: NodeType::Candidate,
             current_term: 2,
             voted_for: Some(3),
-            log: vec![("Some string".to_owned(), 0)],
+            log: vec![(0, vec![])],
         };
 
         let mut file = File::create(OUT_FILE).expect("Unable to create file.");
@@ -271,46 +334,4 @@ mod tests {
             "Persistent state is different from observed state."
         );
     }
-
-    // /// Test that we can write a gzipped msgpack stream to a file on disk
-    // /// and then read it back immediately without losing any data. In other words,
-    // /// test for persistence.
-    // #[test]
-    // pub fn test_write_and_read_commit_log() {
-    //     const OUT_FILE: &str = "/tmp/commit-log.gz";
-
-    //     let commit_log = CommitLog {
-    //         mutations: vec![
-    //             Mutation::SET(SetCommand { key: "GE", value: "Germany" }),
-    //             Mutation::SET(SetCommand { key: "IN", value: "India" }),
-    //             Mutation::SET(SetCommand { key: "CA", value: "Canada" }),
-    //             Mutation::SET(SetCommand { key: "US", value: "United States" }),
-    //             Mutation::DELETE(DeleteCommand { key: "IN" }),
-    //             Mutation::DELETE(DeleteCommand { key: "GE" }),
-    //         ]
-    //     };
-
-    //     // let persistent_state = PersistentState {
-    //     //     participant_type: Election::Candidate,
-    //     //     current_term: 2,
-    //     //     voted_for: Some(3),
-    //     //     log: vec![("Some string".to_owned(), 0)],
-    //     // };
-    //     let mut file = File::create(OUT_FILE).expect("Unable to create file.");
-    //     let bytes_written = file
-    //         .write_commit_log(&commit_log.clone())
-    //         .expect("Could not write commit log.");
-
-    //     println!("{} bytes written to {}", bytes_written, OUT_FILE);
-
-    //     let mut file = File::open(OUT_FILE).expect("Unable to open file.");
-    //     let observed_state: CommitLog<&str, &str> = file
-    //         .read_commit_log()
-    //         .expect("Could not read commit log");
-
-    //     assert_eq!(
-    //         commit_log, observed_state,
-    //         "Commit log is different from observed state."
-    //     );
-    // }
 }

@@ -2,13 +2,16 @@ use proto::raft::{
     VoteRequest, 
     VoteResponse,
 };
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Serialize};
 use tonic::{Request, Response, Status};
-use crate::node::Node;
+use crate::{node::Node, storage::state::persistent::LogEntry};
 use log::{debug, info, trace};
 
 
-pub async fn request_vote<L: serde::Serialize + DeserializeOwned + Clone>(node: &Node<L>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> {
+pub async fn request_vote<L>(node: &Node<L>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
+where
+    L: LogEntry + Clone + Serialize + DeserializeOwned
+{
     trace!("Got a Vote request: {:?}", request);
 
     let vote_request = request.into_inner();
@@ -39,7 +42,7 @@ pub async fn request_vote<L: serde::Serialize + DeserializeOwned + Clone>(node: 
     }
 
     drop(node_persistent_state_guard);
-    node.save();
+    node.save().expect("Could not save persistent state.");
     trace!("Will send a vote response of {vote_response:?}");
     Ok(Response::new(vote_response))
 }

@@ -227,12 +227,6 @@ pub mod tests {
     use serde::de::DeserializeOwned;
     use crate::utils::test_utils::set_up_logging;
 
-    /// Set up logging and other things
-    /// that need to run at the beginning of every test.
-    fn initialize() {
-        SimpleLogger::new().init().unwrap();
-    }
-
     /// A test data structure that wraps the query command
     /// and attaches an expected value to it.
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,6 +245,7 @@ pub mod tests {
 
     /// Enumerable command types
     /// that may be sent to a state machine.
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     pub enum Command<K, V> {
         Query(TestQueryCommand<K, V>),
         Mutation(TestMutationCommand<K, V>)
