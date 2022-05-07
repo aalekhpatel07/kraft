@@ -5,9 +5,11 @@ use hashbrown::HashMap;
 use std::collections::HashMap;
 
 use std::hash::Hash;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
+use log::{debug};
 
 use anyhow::Result;
 
@@ -19,37 +21,240 @@ pub struct KeyValueStore<K: Hash + Eq + PartialEq, V> {
     pub(crate) inner: Arc<Mutex<HashMap<K, V>>>
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GetCommand<K> {
     pub key: K
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MutationCommand<K, V> {
     PUT(PutCommand<K, V>),
     DELETE(DeleteCommand<K>)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum QueryCommand<K> {
     GET(GetCommand<K>)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PutCommand<K, V> {
     pub key: K,
     pub value: V
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeleteCommand<K> {
     pub key: K
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Response<V> {
     pub value: V
 }
+
+
+pub mod parse { 
+    use std::str::FromStr;
+    use super::{
+        PutCommand, 
+        GetCommand,
+        DeleteCommand, MutationCommand
+    };
+
+    // #[derive(Debug)]
+    // pub enum KeyValueParseError<'a, K, V> 
+    // where
+    //     K: FromStr,
+    //     V: FromStr,
+    //     K::Err: std::fmt::Debug,
+    //     V::Err: std::fmt::Debug
+    // {
+    //     KeyParseError(ParseError<K>),
+    //     ValueParseError(ParseError<V>),
+    //     CommandParseError(&'a str)
+    // }
+
+
+    // pub enum KeyParseError<'a, K> 
+    // where
+    //     K: FromStr,
+    //     K::Err: std::fmt::Debug
+    // {
+    //     KeyParseError(ParseError<K>),
+    //     CommandParseError(&'a str)
+    // }
+
+
+    #[derive(Debug)]
+    pub struct ParseError<T>
+    where
+        T: std::fmt::Debug
+    {
+        pub error: T
+    }
+
+    #[derive(Debug)]
+    pub enum KeyValueError<'a, K, V> 
+    where
+        K: std::fmt::Debug,
+        V: std::fmt::Debug,
+    {
+        KeyError(ParseError<K>),
+        ValueError(ParseError<V>),
+        CommandError(ParseError<&'a str>)
+    }
+
+
+    impl<K, V> TryFrom<&str> for PutCommand<K, V>
+    where
+        K: FromStr,
+        V: FromStr,
+        K::Err: std::fmt::Debug,
+        V::Err: std::fmt::Debug,
+    {
+
+        type Error = KeyValueError<'static, K::Err, V::Err>;
+
+        fn try_from(value: &str) -> Result<Self, Self::Error> {
+
+            let tokens = value.split_whitespace().collect::<Vec<&str>>();
+
+            if tokens.len() != 3 {
+                Err(KeyValueError::CommandError(ParseError { error: "Invalid command. A PUT command should look like: PUT <key> <value>" }))
+            } else {
+                let mut iter = tokens.into_iter();
+                let command = iter.next().unwrap();
+                if command != "PUT" {
+                    Err(KeyValueError::CommandError(ParseError { error: "Invalid command. A PUT command must start with: PUT" }))
+                } else {
+
+                    let key = iter.next().unwrap();
+                    let val = iter.next().unwrap();
+
+                    match (K::from_str(key), V::from_str(val)) {
+                        (Ok(k), Ok(v)) => {
+                            Ok(PutCommand { key: k, value: v })
+                        },
+                        (_, Err(err)) => {
+                            Err(KeyValueError::ValueError(ParseError{error: err} ))
+                        },
+                        (Err(err), _) => {
+                            Err(KeyValueError::KeyError(ParseError {error: err} ))
+                        },
+                    }
+                }
+            }
+        }
+    }
+
+
+    #[derive(Debug)]
+    pub enum KeyError<'a, K> 
+    where
+        K: std::fmt::Debug,
+    {
+        KeyError(ParseError<K>),
+        CommandError(ParseError<&'a str>)
+    }
+
+    impl<K> TryFrom<&str> for GetCommand<K>
+    where
+        K: FromStr,
+        K::Err: std::fmt::Debug
+    {
+
+        type Error = KeyError<'static, K::Err>;
+
+        fn try_from(value: &str) -> Result<Self, Self::Error> {
+
+            let tokens = value.split_whitespace().collect::<Vec<&str>>();
+
+            if tokens.len() != 2 {
+                Err(KeyError::CommandError(ParseError {error: "Invalid command. A GET command should look like: GET <key>"}))
+            } else {
+                let mut iter = tokens.into_iter();
+                let command = iter.next().unwrap();
+                if command != "GET" {
+                    Err(KeyError::CommandError(ParseError {error: "Invalid command. A GET command must start with: GET"}))
+                } else {
+
+                    let key = iter.next().unwrap();
+
+                    match K::from_str(key) {
+                        Ok(k) => {
+                            Ok(GetCommand { key: k })
+                        },
+                        Err(err) => {
+                            Err(KeyError::KeyError(ParseError { error: err }))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    impl<K> TryFrom<&str> for DeleteCommand<K>
+    where
+        K: FromStr,
+        K::Err: std::fmt::Debug
+    {
+
+        type Error = KeyError<'static, K::Err>;
+
+        fn try_from(value: &str) -> Result<Self, Self::Error> {
+
+            let tokens = value.split_whitespace().collect::<Vec<&str>>();
+
+            if tokens.len() != 2 {
+                Err(KeyError::CommandError(ParseError {error: "Invalid command. A DELETE command should look like: DELETE <key>"}))
+            } else {
+                let mut iter = tokens.into_iter();
+                let command = iter.next().unwrap();
+                if command != "DELETE" {
+                    Err(KeyError::CommandError(ParseError {error: "Invalid command. A DELETE command must start with: DELETE"}))
+                } else {
+
+                    let key = iter.next().unwrap();
+
+                    match K::from_str(key) {
+                        Ok(k) => {
+                            Ok(DeleteCommand { key: k })
+                        },
+                        Err(err) => {
+                            Err(KeyError::KeyError(ParseError { error: err }))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    impl<K, V> TryFrom<&str> for MutationCommand<K, V> 
+    where
+        K: FromStr,
+        K::Err: std::fmt::Debug,
+        V: FromStr,
+        V::Err: std::fmt::Debug,
+    {
+        type Error = KeyValueError<'static, K::Err, V::Err>;
+        fn try_from(value: &str) -> Result<Self, Self::Error> {
+            if let Ok(PutCommand { key, value: val }) = value.try_into() {
+                Ok(MutationCommand::PUT(PutCommand {key, value: val}))
+            } else if let Ok(DeleteCommand { key }) = value.try_into() {
+                Ok(MutationCommand::DELETE(DeleteCommand { key }))
+            } else {
+                Err(KeyValueError::CommandError(ParseError { error: "Could not parse mutation command." }))
+            }
+        }
+    }
+
+}
+
+
+
+
 
 impl<K: Hash + PartialEq + Eq, V> KeyValueStore<K, V>
 {
@@ -183,6 +388,7 @@ pub mod tests {
     use std::fmt::Debug;
 
     use super::*;
+    use super::parse::*;
     use crate::StateMachine;
     use log;
     use log::debug;
@@ -234,6 +440,71 @@ pub mod tests {
         Mutation(TestMutationCommand<K, V>)
     }
 
+    #[test]
+    pub fn test_put_from_str() {
+        set_up_logging();
+        let expected = PutCommand { key: 1usize, value: "cat".to_owned()};
+        let observed: PutCommand<usize, String> = "PUT 1 cat".try_into().expect("Could not understand PUT");
+        assert_eq!(expected, observed);
+    }
+
+    #[test]
+    pub fn test_get_from_str() {
+        set_up_logging();
+        let expected = GetCommand { key: 1usize };
+        let observed: GetCommand<usize> = "GET 1".try_into().expect("Could not understand GET");
+        assert_eq!(expected, observed);
+    }
+
+    #[test]
+    pub fn test_delete_from_str() {
+        set_up_logging();
+        let expected = DeleteCommand { key: 1usize };
+        let observed: DeleteCommand<usize> = "DELETE 1".try_into().expect("Could not understand DELETE");
+        assert_eq!(expected, observed);
+    }
+
+    #[test]
+    pub fn test_mutation_delete_from_str() {
+        set_up_logging();
+        let expected: MutationCommand<usize, usize> = MutationCommand::DELETE(DeleteCommand { key: 1usize });
+        let observed: MutationCommand<usize, usize> = "DELETE 1".try_into().expect("Could not understand Mutation DELETE.");
+        assert_eq!(expected, observed);
+    }
+
+    #[test]
+    pub fn test_mutation_put_from_str() {
+        set_up_logging();
+        let expected: MutationCommand<usize, usize> = MutationCommand::PUT(PutCommand { key: 1usize, value: 1 });
+        let observed: MutationCommand<usize, usize> = "PUT 1 1".try_into().expect("Could not understand Mutation PUT.");
+        assert_eq!(expected, observed);
+    }
+
+    #[test]
+    pub fn test_mutation_from_str() {
+        set_up_logging();
+        let commands = vec![
+            "PUT x 1",
+            "DELETE x",
+            "PUT y 2",
+            "PUT z 10000"
+        ];
+        let observed: Vec<MutationCommand<String, serde_json::Value>> = 
+            commands
+            .iter()
+            .map(
+                |&cmd| cmd.try_into().expect("Couldnt parse cmd.")
+            )
+            .collect();
+
+        let expected: Vec<MutationCommand<String, serde_json::Value>> = vec![
+            MutationCommand::PUT( PutCommand { key: "x".to_owned(), value: serde_json::json!(1)}),
+            MutationCommand::DELETE( DeleteCommand { key: "x".to_owned() }),
+            MutationCommand::PUT( PutCommand { key: "y".to_owned(), value: serde_json::json!(2)}),
+            MutationCommand::PUT( PutCommand { key: "z".to_owned(), value: serde_json::json!(10000)}),
+        ];
+        assert_eq!(observed, expected);
+    }
 
     pub fn put<K, V>(key: K, value: V, expected_value: V) -> Command<K, V> {
         Command::Mutation(
