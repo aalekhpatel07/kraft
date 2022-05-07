@@ -3,6 +3,21 @@ name = "state_machine"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = []
+impls = [
+    "dep:log", 
+    "dep:simple_logger", 
+    "dep:serde_json", 
+    "dep:serde_derive"
+]
+hashbrown = ["dep:hashbrown", "hashbrown?/serde"] # Enable hashbrown and its serde dependency.
 
 [dependencies]
+serde = { version = "1.0.136", features = ["rc"] }
+anyhow = { version = "1.0.57" }
+serde_derive = { version = "1.0.136", optional = true }
+simple_logger = { version = "2.1.0", features = ["colors", "timestamps"], optional = true }
+log = { version = "0.4.16", optional = true }
+serde_json = { version = "1.0.79", optional = true }
+hashbrown = { version = "0.12.1", optional = true, features=["serde"] }
