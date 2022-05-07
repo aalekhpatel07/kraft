@@ -15,31 +15,6 @@ mod append_entries;
 mod heartbeat;
 
 
-// impl<L> From<ProtoLogEntry> for LogEntry<L> 
-// where
-//     L: From<Vec<u8>> 
-// {
-//     fn from(entry: ProtoLogEntry) -> Self {
-//         Self {
-//             term: entry.term as usize,
-//             command: entry.command.into()
-//         }
-//     }
-// }
-
-// impl<L> From<LogEntry<L>> for ProtoLogEntry 
-// where
-//     L: Into<Vec<u8>> + From<Vec<u8>>,
-// {
-//     fn from(entry: LogEntry<L>) -> Self {
-//         Self {
-//             term: entry.term as u64,
-//             command: entry.command.into(),
-//         }
-//     }
-// }
-
-
 #[tonic::async_trait]
 impl<S> RaftRpc for RaftNode<S>
 where

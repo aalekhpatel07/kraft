@@ -4,13 +4,15 @@ use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use crate::storage::state::persistent::{self, State};
 use crate::storage::state::persistent::Log;
-use crate::storage::state::volatile;
+use crate::storage::state::{volatile};
 use crate::storage::state::raft_io::ReadWriteState;
 use std::fs::File;
 use anyhow::Result;
 use std::env::temp_dir;
 use proto::raft::{LogEntry as ProtoLogEntry};
 
+
+pub type Int = u64;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum NodeType {
@@ -77,7 +79,7 @@ where
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct NodeMetadata {
-    pub id: usize,
+    pub id: Int,
     pub addr: String,
     pub log_file: String
 }
@@ -134,7 +136,7 @@ where
         Ok(bytes_written)
     }
 
-    pub fn leader_commit_index(&self) -> Option<usize> {
+    pub fn leader_commit_index(&self) -> Option<Int> {
         match &*self.volatile_state.lock().unwrap() {
             volatile::VolatileState::Leader(state) => {
                 Some(state.commit_index)

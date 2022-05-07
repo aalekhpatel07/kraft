@@ -56,6 +56,7 @@ pub mod raft_io {
     }
 }
 
+use crate::node::Int;
 
 pub mod persistent {
     use serde::de::DeserializeOwned;
@@ -64,6 +65,7 @@ pub mod persistent {
     // use crate::node::LogEntry;
     use state_machine::StateMachine;
     use proto::raft::LogEntry;
+    use super::Int;
 
     // impl<T> From<LogEntry> for (u64, T)
     // where
@@ -74,7 +76,7 @@ pub mod persistent {
     //     }
     // }
 
-    pub type Log<T> = (u64, T);
+    pub type Log<T> = (Int, T);
 
     /// Updated on stable storage before responding to RPCs.
     #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,9 +86,9 @@ pub mod persistent {
         // pub participant_type: NodeType,
         /// The latest term server has seen (initialized to 0 on first boot, increases
         /// monotonically.)
-        pub current_term: usize,
+        pub current_term: Int,
         /// The `candidate_id` that received vote in the current term (or None, if none exists.)
-        pub voted_for: Option<usize>,
+        pub voted_for: Option<Int>,
 
         /// The log entries, each entry contains command for state machine, and term when entry
         /// was received by leader.
@@ -117,6 +119,7 @@ pub mod persistent {
 pub mod volatile { 
     use serde_derive::{Deserialize, Serialize};
     use std::collections::HashMap;
+    use super::Int;
 
     use crate::node::NodeMetadata;
 
@@ -125,16 +128,16 @@ pub mod volatile {
         /// The index of the highest log entry
         /// known to be committed (initialized to 0, increases
         /// monotonically).
-        pub commit_index: usize,
+        pub commit_index: Int,
         /// The index of the highest log entry applied to
         /// state machine (initialized to 0, increases monotonically).
-        pub last_applied: usize,
+        pub last_applied: Int,
         /// For each server, the index of the next log entry
         /// to send to that server (initialized to leader's last log index + 1).
-        pub next_index: HashMap<usize, Option<usize>>,
+        pub next_index: HashMap<Int, Option<Int>>,
         /// For each server, the index of the highest log entry
         /// known to be to replicated on that server (initialized to 0, increases monotonically).
-        pub match_index: HashMap<usize, Option<usize>>,
+        pub match_index: HashMap<Int, Option<Int>>,
 
     }
     /// Volatile state on all servers. The properties
@@ -146,16 +149,16 @@ pub mod volatile {
         /// The index of the highest log entry
         /// known to be committed (initialized to 0, increases
         /// monotonically).
-        pub commit_index: usize,
+        pub commit_index: Int,
         /// The index of the highest log entry applied to
         /// state machine (initialized to 0, increases monotonically).
-        pub last_applied: usize,
+        pub last_applied: Int,
     }
 
     impl LeaderState {
         pub fn servers(self, servers: &[NodeMetadata]) -> Self {
-            let mut next_index: HashMap<usize, Option<usize>> = HashMap::new();
-            let mut match_index: HashMap<usize, Option<usize>> = HashMap::new();
+            let mut next_index: HashMap<Int, Option<Int>> = HashMap::new();
+            let mut match_index: HashMap<Int, Option<Int>> = HashMap::new();
             
             servers
             .iter()
