@@ -1,0 +1,9 @@
+#!/usr/bin/sh
+
+if which cargo-tarpaulin > /dev/null; then
+	echo "cargo-tarpauling found. Running tests and generating coverage report to `pwd`/tarpauling-report.html"
+	cargo tarpaulin -o Html
+else
+	echo "cargo-tarpaulin not found. Please install cargo-tarpauling with \`cargo install cargo-tarpaulin\` and then try running this script again."
+fi
+
