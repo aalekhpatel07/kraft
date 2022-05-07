@@ -4,13 +4,14 @@ use proto::raft::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tonic::{Request, Response, Status};
-use crate::{node::Node, storage::state::persistent::LogEntry};
+use crate::{node::RaftNode, storage::state::persistent::Log};
 use log::{debug, info, trace};
 
 
-pub async fn request_vote<L>(node: &Node<L>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
+pub async fn request_vote<S>(node: &RaftNode<S>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
 where
-    L: LogEntry + Clone + Serialize + DeserializeOwned
+    S: state_machine::StateMachine,
+    S::MutationCommand: Clone + Serialize + DeserializeOwned
 {
     trace!("Got a Vote request: {:?}", request);
 

@@ -3,13 +3,14 @@ use proto::raft::{
     HeartbeatResponse,
 };
 use tonic::{Request, Response, Status};
-use crate::{node::Node, storage::state::persistent::LogEntry};
+use crate::{node::RaftNode, storage::state::persistent::Log};
 use log::{info, trace, debug};
 
 
-pub async fn heartbeat<L>(node: &Node<L>, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> 
+pub async fn heartbeat<S>(node: &RaftNode<S>, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> 
 where
-    L: LogEntry + Clone
+    S: state_machine::StateMachine,
+    S::MutationCommand: Clone
 {
 
     debug!("Got a request: {:?}", request);

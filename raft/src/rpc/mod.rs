@@ -1,6 +1,6 @@
 use serde::{Serialize, de::DeserializeOwned};
 use tonic::{Request, Response, Status};
-use crate::{node::{Node}, storage::state::persistent::LogEntry};
+use crate::{node::{RaftNode}, storage::state::persistent::Log};
 use proto::raft::{
     HeartbeatRequest,
     HeartbeatResponse,
@@ -8,8 +8,7 @@ use proto::raft::{
     VoteResponse,
     AppendEntriesRequest,
     AppendEntriesResponse,
-    LogEntry as ProtoLogEntry,
-    raft_server::Raft
+    raft_rpc_server::RaftRpc
 };
 mod request_vote;
 mod append_entries;
@@ -42,9 +41,10 @@ mod heartbeat;
 
 
 #[tonic::async_trait]
-impl<L> Raft for Node<L>
+impl<S> RaftRpc for RaftNode<S>
 where
-    L: LogEntry + 'static + Send + Clone + Serialize + DeserializeOwned
+    S: 'static + state_machine::StateMachine,
+    S::MutationCommand: 'static + Send + Clone + Serialize + DeserializeOwned
 {
     async fn append_entries(&self, request: Request<AppendEntriesRequest>) -> Result<Response<AppendEntriesResponse>, Status> {
         append_entries::append_entries(&self, request).await
@@ -59,19 +59,20 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use proto::raft::raft_server::Raft;
+    use proto::raft::raft_rpc_server::RaftRpc;
+    use state_machine::impls::key_value_store::KeyValueStore;
     use tonic::Request;
 
     use super::*;
-    use crate::{utils::test_utils::set_up_logging, storage::state::persistent::LogEntryImpl};
-    use crate::node::Node;
+    use crate::{utils::test_utils::set_up_logging, storage::state::persistent::Log};
+    use crate::node::RaftNode;
     use log::{info, trace, debug};
 
 
     #[tokio::test]
     async fn test_append_entries_basic() {
         set_up_logging();
-        let node: Node<LogEntryImpl<String>> = Node::default();
+        let node: RaftNode<KeyValueStore<String, usize>> = RaftNode::default();
         let request = Request::new(AppendEntriesRequest::default());
         let response = node.append_entries(request).await.unwrap();
 
@@ -85,7 +86,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_heartbeat_basic() {
         set_up_logging();
-        let mut node: Node<LogEntryImpl<String>> = Node::default();
+        let node: RaftNode<KeyValueStore<String, usize>> = RaftNode::default();
         let request = Request::new(HeartbeatRequest::default());
         let response = node.heartbeat(request).await.unwrap();
 
@@ -99,7 +100,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_request_vote_basic() {
         set_up_logging();
-        let node: Node<LogEntryImpl<String>> = Node::default();
+        let node: RaftNode<KeyValueStore<String, usize>> = RaftNode::default();
         let request = Request::new(VoteRequest::default());
         let response = node.request_vote(request).await.unwrap();
         let response = response.into_inner();

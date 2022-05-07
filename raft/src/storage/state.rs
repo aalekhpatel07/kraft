@@ -62,70 +62,23 @@ pub mod persistent {
     use serde_derive::{Deserialize, Serialize};
     use crate::node::NodeType;
     // use crate::node::LogEntry;
-    use crate::storage::state_machine::StateMachine;
+    use state_machine::StateMachine;
+    use proto::raft::LogEntry;
 
-    
-    // pub type StateMachineCommand = String;
-    // pub type Term = usize;
-    // pub type LogRecord = (StateMachineCommand, Term);
+    // impl<T> From<LogEntry> for (u64, T)
+    // where
+    //     T: Clone + From<Vec<u8>>
+    // {
+    //     fn from(entry: LogEntry) -> Self {
+    //         (entry.term, entry.command.into())
+    //     }
+    // }
 
-    pub trait LogEntry {
-        type Command;
-
-        fn term(&self) -> usize;
-        fn command(&self) -> Self::Command;
-    }
-
-    #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-    pub struct LogEntryImpl<T> {
-        pub term: usize,
-        pub command: T
-    }
-
-    impl<T> LogEntry for LogEntryImpl<T> 
-    where
-        T: Clone
-    {
-        type Command = T;
-
-        fn command(&self) -> Self::Command {
-            self.command.clone()   
-        }
-        fn term(&self) -> usize {
-            self.term
-        }
-    }
-
-    impl<T> From<(usize, T)> for LogEntryImpl<T> 
-    where
-        T: Clone
-    {
-        fn from(item: (usize, T)) -> Self {
-            Self {
-                term: item.0,
-                command: item.1
-            }
-        }
-    }
-
-    impl<T> LogEntry for (usize, T) 
-    where
-        T: Clone
-    {
-        type Command = T;
-        fn command(&self) -> Self::Command {
-            self.1.clone()
-        }
-        fn term(&self) -> usize {
-            self.0   
-        }
-    }
+    pub type Log<T> = (u64, T);
 
     /// Updated on stable storage before responding to RPCs.
-    #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-    pub struct State<T> 
-    where
-        T: Clone + LogEntry,
+    #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+    pub struct State<T>
     {
         // /// The kind of the election entity that the current node is assigned.
         // pub participant_type: NodeType,
@@ -137,12 +90,10 @@ pub mod persistent {
 
         /// The log entries, each entry contains command for state machine, and term when entry
         /// was received by leader.
-        pub log: Vec<T>,
+        pub log: Vec<Log<T>>,
     }
     
     impl<T> Default for State<T>
-    where
-        T: LogEntry + Clone
     {
         fn default() -> Self {
             Self {
@@ -154,6 +105,13 @@ pub mod persistent {
         }
     }
 
+    impl<T> State<T>
+    {
+        pub fn new() -> Self {
+            Default::default()
+        }
+    }
+
 }
 
 pub mod volatile { 
@@ -162,7 +120,7 @@ pub mod volatile {
 
     use crate::node::NodeMetadata;
 
-    #[derive(Default, Debug, Clone, Serialize, Deserialize)]
+    #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     pub struct LeaderState {
         /// The index of the highest log entry
         /// known to be committed (initialized to 0, increases
@@ -183,7 +141,7 @@ pub mod volatile {
     /// `next_index` and `match_index` are only applicable
     /// to leader nodes and as such will be None in the other
     /// two cases.
-    #[derive(Default, Debug, Clone, Serialize, Deserialize)]
+    #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     pub struct NonLeaderState {
         /// The index of the highest log entry
         /// known to be committed (initialized to 0, increases
@@ -234,7 +192,7 @@ pub mod volatile {
         }
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     pub enum VolatileState {
         Leader(LeaderState),
         NonLeader(NonLeaderState)
@@ -246,6 +204,12 @@ pub mod volatile {
         }
     }
 
+    impl VolatileState {
+        pub fn new() -> Self {
+            Default::default()
+        }
+    }
+
 }
 
 
@@ -253,13 +217,13 @@ pub mod volatile {
 mod tests {
 
     use crate::node::NodeType;
-    use crate::storage::state::persistent::{State, LogEntryImpl};
+    use crate::storage::state::persistent::{State};
     use std::fs::File;
     use std::thread::sleep;
     use std::time::Duration;
     use super::raft_io::*;
-    use crate::storage::state_machine::state_machine_impls::key_value::*;
-    use super::persistent::LogEntry;
+    use state_machine::impls::key_value_store::*;
+    use super::persistent::Log;
     // use crate::storage::state_machine::{
     //     CommitLog,
     //     Mutation,
@@ -276,11 +240,11 @@ mod tests {
         // let key_value_store = KeyValueStore::new();
 
         const OUT_FILE: &str = "/tmp/.storage.gz";
-        let persistent_state: State<LogEntryImpl<String>> = State {
+        let persistent_state: State<String> = State {
             // participant_type: NodeType::Candidate,
             current_term: 2,
             voted_for: Some(3),
-            log: vec![LogEntryImpl { term: 0, command: "".to_owned() }],
+            log: vec![ (0, "".to_owned()) ],
         };
 
         let mut file = File::create(OUT_FILE).expect("Unable to create file.");
@@ -306,11 +270,11 @@ mod tests {
     #[test]
     pub fn test_write_and_read_persistent_state_after_a_while() {
         const OUT_FILE: &str = "/tmp/foo_wait.gz";
-        let persistent_state: State<(usize, Vec<u8>)> = State {
+        let persistent_state: State<Vec<u8>> = State {
             // participant_type: NodeType::Candidate,
             current_term: 2,
             voted_for: Some(3),
-            log: vec![(0, vec![])],
+            log: vec![ (0, vec![]) ],
         };
 
         let mut file = File::create(OUT_FILE).expect("Unable to create file.");

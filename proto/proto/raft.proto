@@ -75,7 +75,7 @@ message VoteResponse {
 }
 
 // The RPCs involved in Raft.
-service Raft {
+service RaftRPC {
     // A leader-to-* RPC that requests the other nodes to append entries in their logs.
     rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {};
     // A leader-to-* RPC that informs the other notes of its leadership and existence.

@@ -59,7 +59,7 @@ pub mod parse {
     use super::{
         PutCommand, 
         GetCommand,
-        DeleteCommand, MutationCommand
+        DeleteCommand, MutationCommand, QueryCommand
     };
 
     // #[derive(Debug)]
@@ -246,6 +246,22 @@ pub mod parse {
                 Ok(MutationCommand::DELETE(DeleteCommand { key }))
             } else {
                 Err(KeyValueError::CommandError(ParseError { error: "Could not parse mutation command." }))
+            }
+        }
+    }
+
+
+    impl<K> TryFrom<&str> for QueryCommand<K> 
+    where
+        K: FromStr,
+        K::Err: std::fmt::Debug,
+    {
+        type Error = KeyError<'static, K::Err>;
+        fn try_from(value: &str) -> Result<Self, Self::Error> {
+            if let Ok(GetCommand { key }) = value.try_into() {
+                Ok(QueryCommand::GET(GetCommand { key }))
+            } else {
+                Err(KeyError::CommandError(ParseError { error: "Could not parse query command." }))
             }
         }
     }
@@ -503,6 +519,31 @@ pub mod tests {
             MutationCommand::PUT( PutCommand { key: "y".to_owned(), value: serde_json::json!(2)}),
             MutationCommand::PUT( PutCommand { key: "z".to_owned(), value: serde_json::json!(10000)}),
         ];
+        assert_eq!(observed, expected);
+    }
+
+
+
+    #[test]
+    pub fn test_query_from_str() {
+        set_up_logging();
+        let commands = vec![
+            "GET x",
+            "GET y",
+        ];
+        let observed: Vec<QueryCommand<String>> = 
+            commands
+            .iter()
+            .map(
+                |&cmd| cmd.try_into().expect("Couldnt parse cmd.")
+            )
+            .collect();
+
+        let expected: Vec<QueryCommand<String>> = vec![
+            QueryCommand::GET( GetCommand { key: "x".to_owned() }),
+            QueryCommand::GET( GetCommand { key: "y".to_owned() }),
+        ];
+        
         assert_eq!(observed, expected);
     }
 
