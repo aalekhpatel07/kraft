@@ -16,8 +16,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - name: Install nextest.
+      uses: taiki-e/install-action@nextest
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo nextest run
     - name: Build a release version.
       run: cargo build --release --verbose
     - name: Upload the built binaries.
