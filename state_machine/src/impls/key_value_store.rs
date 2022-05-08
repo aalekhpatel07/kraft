@@ -396,6 +396,39 @@ where
 }
 
 
+#[cfg(feature = "random")]
+pub mod random {
+    use rand::Rng;
+    use rand::distributions::{Standard, Distribution};
+
+    use super::{MutationCommand, PutCommand, DeleteCommand};
+
+    impl<K, V> Distribution<MutationCommand<K, V>> for Standard 
+    where
+        Standard: Distribution<K> + Distribution<V>
+    {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> MutationCommand<K, V> {
+            match rng.gen_range(0..=1) {
+                0 => {
+                    MutationCommand::PUT(
+                        PutCommand {
+                            key: rng.gen::<K>(),
+                            value: rng.gen::<V>()
+                        }
+                    )
+                },
+                _ => {
+                    MutationCommand::DELETE(
+                        DeleteCommand {
+                            key: rng.gen::<K>(),
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
 

@@ -118,7 +118,13 @@ pub mod persistent {
 
 pub mod volatile { 
     use serde_derive::{Deserialize, Serialize};
+
+    #[cfg(feature = "hashbrown")]
+    use hashbrown::HashMap;
+    
+    #[cfg(not(feature = "hashbrown"))]
     use std::collections::HashMap;
+    
     use super::Int;
 
     use crate::node::NodeMetadata;

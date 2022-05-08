@@ -10,6 +10,7 @@ use std::fs::File;
 use anyhow::Result;
 use std::env::temp_dir;
 use proto::raft::{LogEntry as ProtoLogEntry};
+use log::{trace};
 
 
 pub type Int = u64;
@@ -127,8 +128,9 @@ where
 {
     pub fn save(&self) -> Result<usize> {
         let state = self.persistent_state.lock().unwrap();
-        
-        let mut file = File::create(&self.meta.log_file)?;
+        let log_file = &self.meta.log_file;
+        trace!("Writing state to {log_file:?}");
+        let mut file = File::create(log_file)?;
 
         let bytes_written = file
             .write_state(&state.clone())
@@ -157,6 +159,11 @@ where
         Ok(())
     }
 
+    pub fn load_state(&self) -> Result<State<S::MutationCommand>> {
+        let mut file = File::open(&self.meta.log_file)?;
+        let observed_state: State<S::MutationCommand> = file.read_state()?;
+        Ok(observed_state)
+    }
     // pub fn proto_log(&self) -> Vec<ProtoLogEntry> {
     //     self
     //     .log()
@@ -173,6 +180,131 @@ where
 }
 
 
+#[cfg(feature = "random")]
+pub mod random {
+    use rand::{Rng};
+    use rand::distributions::{Distribution, Standard};
+    use super::RaftNode;
+    use super::NodeMetadata;
+    use super::{NodeType, Int};
+    use std::sync::{Arc, Mutex};
+    use crate::storage::state::persistent::{State, Log};
+    use crate::storage::state::volatile::VolatileState;
+    use crate::storage::state::volatile::{LeaderState, NonLeaderState};
+
+    #[cfg(feature = "hashbrown")]
+    use hashbrown::HashMap;
+
+    #[cfg(not(feature = "hashbrown"))]
+    use std::collections::HashMap;
+
+    impl Distribution<NodeMetadata> for Standard {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> NodeMetadata {
+            NodeMetadata {
+                id: rng.gen_range(0..=10),
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Distribution<NodeType> for Standard {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> NodeType {
+            match rng.gen_range(0usize..=2) {
+                0 => NodeType::Follower,
+                1 => NodeType::Candidate,
+                _ => NodeType::Leader
+            }
+        }
+    }
+
+    impl Distribution<LeaderState> for Standard {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> LeaderState {
+
+            let mut next_index_hmap: HashMap<Int, Option<Int>> =  HashMap::new();
+            let mut match_index_hmap: HashMap<Int, Option<Int>> =  HashMap::new();
+
+            (0..=5)
+            .for_each(|id| {
+                next_index_hmap.insert(id, rng.gen::<Option<Int>>());
+                match_index_hmap.insert(id, rng.gen::<Option<Int>>());
+            });
+
+            LeaderState {
+                commit_index: rng.gen_range(0..=15),
+                last_applied: rng.gen_range(0..=15),
+                next_index: next_index_hmap,
+                match_index: match_index_hmap
+            }
+        }
+    }
+
+    impl Distribution<NonLeaderState> for Standard {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> NonLeaderState {
+
+            NonLeaderState {
+                commit_index: rng.gen_range(0..=15),
+                last_applied: rng.gen_range(0..=15)
+            }
+        }
+    }
+
+    impl Distribution<VolatileState> for Standard {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> VolatileState {
+            match rng.gen_range(0..=1) {
+                0 => VolatileState::Leader(rng.gen::<LeaderState>()),
+                _ => VolatileState::NonLeader(rng.gen::<NonLeaderState>())
+            }
+        }
+    }
+
+
+    impl<T> Distribution<State<T>> for Standard 
+    where
+        Standard: Distribution<T>
+    {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> State<T> {
+            let mut log: Vec<Log<T>> = vec![];
+
+            (0..rng.gen_range::<>(0..=10u64))
+            .for_each(|idx| {
+                log.push((rng.gen_range((idx+1)..=100), rng.gen::<T>()));
+            });
+
+            State {
+                current_term: rng.gen_range(0..=10),
+                voted_for: {
+                    match rng.gen_range(0..=1) {
+                        0 => Some(rng.gen_range(0..=5)),
+                        _ => None
+                    }
+                },
+                log
+            }
+        }
+    }
+
+    impl<S> Distribution<RaftNode<S>> for Standard 
+    where
+        S: state_machine::StateMachine,
+        Standard: Distribution<S::MutationCommand>
+    {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> RaftNode<S> {
+            
+            let node_type: NodeType = rng.gen::<NodeType>();
+            let meta: NodeMetadata = rng.gen::<NodeMetadata>();
+            let persistent_state: State<S::MutationCommand> = rng.gen::<State<S::MutationCommand>>();
+            let volatile_state: VolatileState = rng.gen::<VolatileState>();
+
+            RaftNode {
+                node_type,
+                meta,
+                persistent_state: Arc::new(Mutex::new(persistent_state)),
+                volatile_state: Arc::new(Mutex::new(volatile_state)),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use crate::node::{NodeType, NodeMetadata};
@@ -185,6 +317,9 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
     use crate::utils::test_utils::set_up_logging;
     use log::{debug, info};
+
+    #[cfg(feature = "random")]
+    use rand::{Rng, thread_rng};
 
 
     #[test]
@@ -209,6 +344,14 @@ pub mod tests {
 
     }
 
+
+    #[test]
+    fn test_create_random_raft_node() {
+        set_up_logging();
+        let mut rng = thread_rng();
+        let node: RaftNode<KeyValueStore<usize, usize>> = rng.gen();
+        info!("Random node: {node:?}");
+    }
     #[test]
     fn test_set_logs() {
         set_up_logging();

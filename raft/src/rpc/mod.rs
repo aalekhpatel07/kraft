@@ -10,9 +10,9 @@ use proto::raft::{
     AppendEntriesResponse,
     raft_rpc_server::RaftRpc
 };
-mod request_vote;
-mod append_entries;
-mod heartbeat;
+pub mod request_vote;
+pub mod append_entries;
+pub mod heartbeat;
 
 
 #[tonic::async_trait]
