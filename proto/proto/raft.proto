@@ -29,6 +29,10 @@ message AppendEntriesResponse {
     uint64 term = 1;
     // True, if a follower contained an entry matching prev_log_index and prev_log_term
     bool success = 2;
+    // The term for the earliest conflicting entry, if unsuccessful.
+    uint64 conflicting_term = 3;
+    // The index of the first entry in the conflicting term, if unsuccessful.
+    uint64 conflicting_term_first_index = 4;
 }
 
 

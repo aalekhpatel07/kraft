@@ -42,7 +42,9 @@ where
 
     let mut response = AppendEntriesResponse { 
         term: persistent_state.current_term as u64, 
-        success: false
+        success: false,
+        conflicting_term: 0u64,
+        conflicting_term_first_index: 0u64
     };
 
     drop(persistent_state);
@@ -161,7 +163,7 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use log::info;
+    use log::{info, debug};
     use serde_json::Value;
     use tonic::transport::Server;
     use tonic::{Request, Response};
@@ -212,7 +214,9 @@ pub mod tests {
     pub fn create_response(term: Int, success: bool) -> AppendEntriesResponse {
         AppendEntriesResponse {
             term,
-            success
+            success,
+            conflicting_term: 0,
+            conflicting_term_first_index: 0
         }
     }
 
@@ -308,6 +312,18 @@ pub mod tests {
         VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
     );
 
+
+    // append_entries_test!(
+    //     /// Test that append entries works fine.
+    //     initial,
+    //     State { current_term: 0, voted_for: None, log: vec![] },
+    //     VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+    //     (0, 1, 0, 0, vec![(0u64, mutation_command("PUT x 3"))], 0), 
+    //     (0, false), 
+    //     State { current_term: 0, voted_for: None, log: vec![] },
+    //     VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+    // );
+
     pub fn random_string(rng: &mut rand::rngs::ThreadRng, len: usize) -> String {
         rng
         .sample_iter(&Alphanumeric)
@@ -341,7 +357,7 @@ pub mod tests {
         set_up_logging();
         let terms: Vec<u64> = vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6];
         let entries = log_entries_from_term_sequence(&terms);
-        info!("entries: {entries:?}");
+        debug!("entries: {entries:?}");
         
         let commands: Vec<Log<MutationCommand<String, serde_json::Value>>> = 
         entries
@@ -350,6 +366,6 @@ pub mod tests {
             (term, Into::<MutationCommand<String, serde_json::Value>>::into(cmd))
         })
         .collect();
-        info!("commands: {commands:?}");
+        debug!("commands: {commands:?}");
     }
 }
