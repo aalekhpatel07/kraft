@@ -288,7 +288,7 @@ pub mod tests {
                     let expected_response = create_response($response.0, $response.1);
 
                     // Make the RequestVoteRPC and get a response.
-                    let observed_response = receiver.request_vote(request).await.unwrap();
+                    let observed_response = request_vote(&receiver, request).await.expect("RequestVoteRPC failed to await.");
 
                     // Assert the observed response is the same as expected.
                     assert_eq!(

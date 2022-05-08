@@ -11,5 +11,16 @@ pub mod raft {
             (entry.term, entry.command.into())
         }
     }
+    impl<T> From<(u64, T)> for LogEntry 
+    where
+        T: core::convert::Into<Vec<u8>>
+    {
+        fn from(entry: (u64, T)) -> Self {
+            Self {
+                term: entry.0,
+                command: entry.1.into()
+            }
+        }
+    }
 }
 

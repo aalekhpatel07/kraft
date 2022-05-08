@@ -17,12 +17,26 @@ where
     S: state_machine::StateMachine,
     S::MutationCommand: Clone + Serialize + DeserializeOwned
 {
-    info!("Got a request: {:?}", request);
     
-    let mut persistent_state = node.persistent_state.lock().unwrap();
+    trace!("Got a request: {request:?}");
 
-    let mut append_entries_request = request.into_inner();
-    let mut response = AppendEntriesResponse { term: persistent_state.current_term as u64, success: false };
+    let AppendEntriesRequest { 
+        term, 
+        leader_id, 
+        prev_log_index, 
+        prev_log_term, 
+        entries, 
+        leader_commit_index
+    } = request.into_inner();
+
+
+    let mut persistent_state = node.persistent_state.lock().expect("Could not lock persistent state.");
+    let mut volatile_state = node.volatile_state.lock().expect("Could not lock volatile state.");
+
+    let mut response = AppendEntriesResponse { 
+        term: persistent_state.current_term as u64, 
+        success: false
+    };
 
     // // Reply false if term < currentTerm.
     // if append_entries_request.term < persistent_state.current_term as u64 {
@@ -143,33 +157,154 @@ pub mod tests {
     use crate::storage::state::persistent::State;
     use crate::storage::state::volatile::{VolatileState, LeaderState, NonLeaderState};
     use crate::{
-        node::{RaftNode, NodeType, NodeMetadata}, utils::test_utils::set_up_logging, storage::state::persistent::Log
+        node::{RaftNode, NodeType, NodeMetadata}, 
+        utils::test_utils::set_up_logging, 
+        storage::state::persistent::Log
     };
     use crate::rpc::RaftRpc;
+    use proto::raft::{
+        AppendEntriesRequest, 
+        AppendEntriesResponse
+    };
     // use crate::storage::state::persistent::State;
     // use crate::storage::state::volatile::*;
     use proto::raft::{raft_rpc_client::RaftRpcClient, raft_rpc_server::RaftRpcServer};
     use proto::raft::{LogEntry as ProtoLogEntry};
     use proto::raft::*;
     use state_machine::impls::key_value_store::*;
+    use crate::node::Int;
+    use std::path::PathBuf;
+
+    use rand::{distributions::Alphanumeric, Rng};
+    use super::append_entries;
 
 
+    pub fn create_request<T: Into<Vec<u8>>>
+    (
+        term: Int, 
+        leader_id: Int, 
+        prev_log_index: Int, 
+        prev_log_term: Int,
+        entries: Vec<Log<T>>,
+        leader_commit_index: Int
+    ) -> Request<AppendEntriesRequest> 
+    {
+        let entries: Vec<LogEntry> = entries.into_iter().map(|entry| entry.into()).collect();
 
-    pub fn create_log_entries(term_sequence: &[u64]) -> Vec<Log<Vec<u8>>> {
-        term_sequence
-        .iter()
-        .map(|term| {
-            (*term, Vec::<u8>::new())
-        }).collect::<Vec<Log<Vec<u8>>>>()
+        let append_entries_request = AppendEntriesRequest {
+            term, leader_id, prev_log_index, prev_log_term, entries, leader_commit_index
+        };
+        Request::new(append_entries_request)
     }
+
+    pub fn create_response(term: Int, success: bool) -> AppendEntriesResponse {
+        AppendEntriesResponse {
+            term,
+            success
+        }
+    }
+
+
+    macro_rules! append_entries_test {
+        (
+            $(#[$meta:meta])*
+            $func_name:ident, 
+            $initial_persistent_state:expr, 
+            $initial_volatile_state:expr, 
+            $request:expr, 
+            $response:expr, 
+            $final_persistent_state:expr,
+            $final_volatile_state:expr
+        ) => {
+                $(#[$meta])*
+                #[tokio::test]
+                pub async fn $func_name() {
+                    set_up_logging();
+
+                    // This node receives the RPC.
+                    let mut receiver: RaftNode<KeyValueStore<String, String>> = RaftNode::default();
+                    
+                    let mut log_file_path = PathBuf::from("/tmp");
+                    let log_file_base = rand::thread_rng().sample_iter(&Alphanumeric).take(15).map(char::from).collect::<String>();
+                    log_file_path.push(format!("{}.raft", log_file_base));
+                    receiver.meta.log_file = log_file_path.to_str().expect("Is invalid unicode.").to_owned();
+
+                    // Set the initial states as given.
+                    receiver.persistent_state = std::sync::Arc::new(std::sync::Mutex::new($initial_persistent_state));
+                    receiver.volatile_state = std::sync::Arc::new(std::sync::Mutex::new($initial_volatile_state));
+
+                    // Create a AppendEntriesRequest from the given argument.
+                    let request = create_request::<Vec<u8>>(
+                        $request.0, 
+                        $request.1, 
+                        $request.2, 
+                        $request.3, 
+                        $request.4, 
+                        $request.5
+                    );
+
+                    // Create an expected response from the given response.
+                    let expected_response = create_response($response.0, $response.1);
+
+                    // Make the AppendEntriesRPC and get a response.
+                    let observed_response = append_entries(&receiver, request).await.expect("AppendEntriesRPC failed to await.");
+
+                    // Assert the observed response is the same as expected.
+                    assert_eq!(
+                        observed_response.into_inner(), 
+                        expected_response,
+                        "AppendEntriesResponse does not match up."
+                    );
+
+                    // Assert the final persistent state is the same as expected.
+                    assert_eq!(
+                        &*receiver.persistent_state.lock().expect("Couldn't lock persistent state."),
+                        &$final_persistent_state,
+                        "Persistent state does not match up."
+                    );
+
+                    // Check that the state change is persisted on stable storage.
+                    assert_eq!(
+                        &receiver.load_state().expect("Couldn't load state."),
+                        &$final_persistent_state
+                    );
+
+                    // Assert the final volatile state is the same as expected.
+                    assert_eq!(
+                        &*receiver.volatile_state.lock().expect("Couldn't lock volatile state."),
+                        &$final_volatile_state,
+                        "Volatile state does not match up."
+                    );
+            }
+        };
+    }
+
+    append_entries_test!(
+        /// Test that append entries works fine.
+        initial,
+        State { current_term: 0, voted_for: None, log: vec![] },
+        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        (0, 1, 0, 0, vec![(0u64, Vec::<u8>::new())], 0), 
+        (0, false), 
+        State { current_term: 0, voted_for: None, log: vec![] },
+        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+    );
+
+    // pub fn create_log_entries(term_sequence: &[u64]) -> Vec<Log<Vec<u8>>> {
+    //     term_sequence
+    //     .iter()
+    //     .map(|term| {
+    //         (*term, Vec::<u8>::new())
+    //     }).collect::<Vec<Log<Vec<u8>>>>()
+    // }
     
-    #[test]
-    pub fn test_create_log_entries() {
-        set_up_logging();
-        let terms: Vec<u64> = vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6];
-        let entries = create_log_entries(&terms);
-        info!("entries: {entries:?}");
-    }
+    // #[test]
+    // pub fn test_create_log_entries() {
+    //     set_up_logging();
+    //     let terms: Vec<u64> = vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6];
+    //     let entries = create_log_entries(&terms);
+    //     info!("entries: {entries:?}");
+    // }
 
     // fn create_leader(term_sequence: &[u64], addr: &str) -> Node<Vec<u8>> {
 
@@ -206,70 +341,8 @@ pub mod tests {
     // }
 
 
-    fn create_key_value_store() -> KeyValueStore<String, serde_json::Value>{
-        KeyValueStore::<String, serde_json::Value>::new()
-    }
-
-    #[tokio::test]
-    async fn test_append_entries_case_a() {
-        let mut store = create_key_value_store();
-
-        set_up_logging();
-        let node: RaftNode<KeyValueStore<String, Value>> = RaftNode::default();
-        
-        
-        let request = Request::new(AppendEntriesRequest::default());
-        let response = node.append_entries(request).await.unwrap();
-
-        let response = response.into_inner();
-        assert_eq!(response.term, 0);
-        assert_eq!(response.success, false);
-
-        info!("response: {response:?}");
-    }
-
-
-    // #[tokio::test]
-    // async fn test_append_entries_case_a() -> Result<(), Box<dyn std::error::Error>> {
-    //     set_up_logging();
-
-    //     let leader: Node<Vec<u8>> = Node {
-    //         node_type: NodeType::Leader,
-    //         meta: NodeMetadata::default(),
-    //         persistent_state: Arc::new(Mutex::new(
-    //             State {
-    //                 current_term: 0,
-    //                 voted_for: None,
-    //                 log: create_log_entries(
-    //                     &vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6]
-    //                 )
-    //             }
-    //         )),
-    //         volatile_state: Arc::new(Mutex::new(
-    //             VolatileState::Leader( LeaderState::default() )
-    //         ))
-    //     };
-
-    //     let follower: Node<Vec<u8>> = Node {
-    //         node_type: NodeType::Follower,
-    //         meta: NodeMetadata::default(),
-    //         persistent_state: Arc::new(Mutex::new(
-    //             State {
-    //                 current_term: 0,
-    //                 voted_for: None,
-    //                 log: create_log_entries(
-    //                     &vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6]
-    //                 )
-    //             }
-    //         )),
-    //         volatile_state: Arc::new(Mutex::new(
-    //             VolatileState::NonLeader( NonLeaderState::default() )
-    //         ))
-    //     };
-
-    //     leader.append_entries(request)
-
-    //     Ok(())
-        
+    // fn create_key_value_store() -> KeyValueStore<String, serde_json::Value>{
+    //     KeyValueStore::<String, serde_json::Value>::new()
     // }
+
 }
