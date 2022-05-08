@@ -15,7 +15,7 @@ use serde::de::DeserializeOwned;
 pub async fn append_entries<S>(node: &RaftNode<S>, request: Request<AppendEntriesRequest>) -> Result<Response<AppendEntriesResponse>, Status> 
 where
     S: state_machine::StateMachine,
-    S::MutationCommand: Clone + Serialize + DeserializeOwned
+    S::MutationCommand: Clone + Serialize + DeserializeOwned + From<Vec<u8>> + std::fmt::Debug
 {
     
     trace!("Got a request: {request:?}");
@@ -25,10 +25,17 @@ where
         leader_id, 
         prev_log_index, 
         prev_log_term, 
-        entries, 
+        mut entries, 
         leader_commit_index
     } = request.into_inner();
 
+    let entries = 
+        entries
+        .into_iter()
+        .map(|entry| entry.into())
+        .collect::<Vec<Log<S::MutationCommand>>>();
+
+    trace!("entries: {entries:?}");
 
     let mut persistent_state = node.persistent_state.lock().expect("Could not lock persistent state.");
     let mut volatile_state = node.volatile_state.lock().expect("Could not lock volatile state.");
@@ -37,7 +44,7 @@ where
         term: persistent_state.current_term as u64, 
         success: false
     };
-    
+
     drop(persistent_state);
     drop(volatile_state);
 
@@ -194,7 +201,7 @@ pub mod tests {
         leader_commit_index: Int
     ) -> Request<AppendEntriesRequest> 
     {
-        let entries: Vec<LogEntry> = entries.into_iter().map(|entry| entry.into()).collect();
+        let entries: Vec<LogEntry> = entries.into_iter().map(Into::into).collect();
 
         let append_entries_request = AppendEntriesRequest {
             term, leader_id, prev_log_index, prev_log_term, entries, leader_commit_index
@@ -227,7 +234,7 @@ pub mod tests {
                     set_up_logging();
 
                     // This node receives the RPC.
-                    let mut receiver: RaftNode<KeyValueStore<String, String>> = RaftNode::default();
+                    let mut receiver: RaftNode<KeyValueStore<String, serde_json::Value>> = RaftNode::default();
                     
                     let mut log_file_path = PathBuf::from("/tmp");
                     let log_file_base = rand::thread_rng().sample_iter(&Alphanumeric).take(15).map(char::from).collect::<String>();
@@ -284,70 +291,65 @@ pub mod tests {
         };
     }
 
+    pub fn mutation_command(s: &str) -> Vec<u8> {
+        let cmd = TryInto::<MutationCommand<String, serde_json::Value>>::try_into(s).expect("Could not parse PUT.");
+        cmd.into()
+        // vec![]
+    }
+
     append_entries_test!(
         /// Test that append entries works fine.
         initial,
         State { current_term: 0, voted_for: None, log: vec![] },
         VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
-        (0, 1, 0, 0, vec![(0u64, Vec::<u8>::new())], 0), 
+        (0, 1, 0, 0, vec![(0u64, mutation_command("PUT x 3"))], 0), 
         (0, false), 
         State { current_term: 0, voted_for: None, log: vec![] },
         VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
     );
 
-    // pub fn create_log_entries(term_sequence: &[u64]) -> Vec<Log<Vec<u8>>> {
-    //     term_sequence
-    //     .iter()
-    //     .map(|term| {
-    //         (*term, Vec::<u8>::new())
-    //     }).collect::<Vec<Log<Vec<u8>>>>()
-    // }
+    pub fn random_string(rng: &mut rand::rngs::ThreadRng, len: usize) -> String {
+        rng
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect::<String>()
+    }
+
+    pub fn log_entries_from_term_sequence(term_sequence: &[u64]) -> Vec<Log<Vec<u8>>> {
+        let mut rng = rand::thread_rng();
+
+        term_sequence
+        .iter()
+        .map(|term| {
+
+            let cmd: MutationCommand<String, serde_json::Value> = match rng.gen_range(0..=1) {
+                0 => {
+                    MutationCommand::PUT(PutCommand { key: random_string(&mut rng, 2), value: serde_json::json!({"dog": "cat"}) })
+                },
+                _ => {
+                    MutationCommand::DELETE(DeleteCommand { key: random_string(&mut rng, 2)})
+                }
+            };
+
+            (*term, cmd.into())
+        }).collect::<Vec<Log<Vec<u8>>>>()
+    }
     
-    // #[test]
-    // pub fn test_create_log_entries() {
-    //     set_up_logging();
-    //     let terms: Vec<u64> = vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6];
-    //     let entries = create_log_entries(&terms);
-    //     info!("entries: {entries:?}");
-    // }
-
-    // fn create_leader(term_sequence: &[u64], addr: &str) -> Node<Vec<u8>> {
-
-    //     let state = State {
-    //         current_term: 0,
-    //         voted_for: None,
-    //         log: create_log_entries(term_sequence)
-    //     };
-    //     let volatile_state = VolatileState::Leader( LeaderState::default() );
-
-    //     Node {
-    //         node_type: NodeType::Leader,
-    //         meta: NodeMetadata { id: 0, addr: addr.to_owned(), ..Default::default() },
-    //         persistent_state: Arc::new(Mutex::new(state)),
-    //         volatile_state: Arc::new(Mutex::new(volatile_state))
-    //     }
-    // }
-
-    // fn create_follower(term_sequence: &[usize], addr: &str) -> Node<Vec<u8>> {
-
-    //     let state = State {
-    //         current_term: 0,
-    //         voted_for: None,
-    //         log: create_log_entries(term_sequence)
-    //     };
-    //     let volatile_state = VolatileState::NonLeader( NonLeaderState::default() );
-
-    //     Node {
-    //         node_type: NodeType::Follower,
-    //         meta: NodeMetadata { id: 0, addr: addr.to_owned(), ..Default::default() },
-    //         persistent_state: Arc::new(Mutex::new(state)),
-    //         volatile_state: Arc::new(Mutex::new(volatile_state))
-    //     }
-    // }
-
-
-    // fn create_key_value_store() -> KeyValueStore<String, serde_json::Value>{
-    //     KeyValueStore::<String, serde_json::Value>::new()
-    // }
-
+    #[test]
+    pub fn test_log_entries_from_term_sequence() {
+        set_up_logging();
+        let terms: Vec<u64> = vec![1, 1, 1, 4, 4, 5, 5, 6, 6, 6];
+        let entries = log_entries_from_term_sequence(&terms);
+        info!("entries: {entries:?}");
+        
+        let commands: Vec<Log<MutationCommand<String, serde_json::Value>>> = 
+        entries
+        .into_iter()
+        .map(|(term, cmd)| {
+            (term, Into::<MutationCommand<String, serde_json::Value>>::into(cmd))
+        })
+        .collect();
+        info!("commands: {commands:?}");
+    }
 }

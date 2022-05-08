@@ -56,6 +56,8 @@ pub struct Response<V> {
 
 pub mod parse { 
     use std::str::FromStr;
+    use serde_json::Serializer;
+
     use super::{
         PutCommand, 
         GetCommand,
@@ -263,6 +265,44 @@ pub mod parse {
             } else {
                 Err(KeyError::CommandError(ParseError { error: "Could not parse query command." }))
             }
+        }
+    }
+
+    impl<K, V> From<Vec<u8>> for MutationCommand<K, V> 
+    where
+        K: serde::de::DeserializeOwned,
+        V: serde::de::DeserializeOwned
+    {
+        fn from(serialized: Vec<u8>) -> Self {
+            #[cfg(not(features = "msgpack"))]
+            let data: MutationCommand<K, V> = serde_json::from_slice(&serialized).expect("Couldn't deserialize into a MutationCommand.");
+            
+            #[cfg(features = "msgpack")]
+            let data: MutationCommand<K, V> = rmp_serde::from_slice(&serialized).expect("Couldn't deserialize msgpack into a MutationCommand.");
+
+            data
+        }
+    }
+
+    impl<K, V> Into<Vec<u8>> for MutationCommand<K, V> 
+    where
+        K: serde::ser::Serialize,
+        V: serde::ser::Serialize
+
+    {
+        fn into(self) -> Vec<u8> {
+            #[cfg(not(features = "msgpack"))]
+            {
+                let serialized = serde_json::to_string(&self).expect("Couldn't serialize MutationCommand.");
+                serialized.into_bytes()
+            }
+
+            #[cfg(features = "msgpack")]
+            {
+                let serialized = rmp_serde::to_vec(&self).expect("Couldn't serialize MutationCommand.");
+                serialized
+            }
+
         }
     }
 }

@@ -9,10 +9,13 @@ impls = [
     "dep:log", 
     "dep:simple_logger", 
     "dep:serde_json", 
-    "dep:serde_derive"
+    "dep:serde_derive",
+    "parse"
 ]
 hashbrown = ["dep:hashbrown", "hashbrown?/serde"] # Enable hashbrown and its serde dependency.
 random = ["dep:rand"]
+msgpack = ["dep:rmp-serde"]
+parse = []
 
 [dependencies]
 serde = { version = "1.0.136", features = ["rc"] }
@@ -23,3 +26,4 @@ log = { version = "0.4.16", optional = true }
 serde_json = { version = "1.0.79", optional = true }
 hashbrown = { version = "0.12.1", optional = true, features=["serde"] }
 rand = { version = "0.8.5", optional = true }
+rmp-serde = { version = "1.0.0", optional = true }

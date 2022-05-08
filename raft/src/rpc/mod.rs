@@ -19,7 +19,7 @@ pub mod heartbeat;
 impl<S> RaftRpc for RaftNode<S>
 where
     S: 'static + state_machine::StateMachine,
-    S::MutationCommand: 'static + Send + Clone + Serialize + DeserializeOwned
+    S::MutationCommand: 'static + Send + Clone + Serialize + DeserializeOwned + std::fmt::Debug + From<Vec<u8>>
 {
     async fn append_entries(&self, request: Request<AppendEntriesRequest>) -> Result<Response<AppendEntriesResponse>, Status> {
         append_entries::append_entries(&self, request).await

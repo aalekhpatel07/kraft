@@ -55,7 +55,7 @@ use log::{debug, info, trace, warn};
 pub async fn request_vote<S>(node: &RaftNode<S>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
 where
     S: state_machine::StateMachine,
-    S::MutationCommand: Clone + Serialize + DeserializeOwned
+    S::MutationCommand: Clone + Serialize + DeserializeOwned + From<Vec<u8>> + std::fmt::Debug
 {
     trace!("Got a Vote request: {:?}", request);
 

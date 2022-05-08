@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -71,6 +72,7 @@ impl NodeType {
 pub struct RaftNode<S>
 where
     S: state_machine::StateMachine,
+    S::MutationCommand: std::fmt::Debug + From<Vec<u8>>
 {
     pub node_type: NodeType,
     pub meta: NodeMetadata,
@@ -108,7 +110,8 @@ impl Default for NodeMetadata {
 
 impl<S> Default for RaftNode<S>
 where
-    S: state_machine::StateMachine
+    S: state_machine::StateMachine,
+    S::MutationCommand: std::fmt::Debug + From<Vec<u8>>
 {
     fn default() -> RaftNode<S> {
         Self {
@@ -124,7 +127,7 @@ where
 impl<S> RaftNode<S>
 where
     S: state_machine::StateMachine,
-    S::MutationCommand: Clone + Serialize + DeserializeOwned
+    S::MutationCommand: Clone + Serialize + DeserializeOwned + std::fmt::Debug + From<Vec<u8>>
 {
     pub fn save(&self) -> Result<usize> {
         let state = self.persistent_state.lock().unwrap();
@@ -286,6 +289,7 @@ pub mod random {
     impl<S> Distribution<RaftNode<S>> for Standard 
     where
         S: state_machine::StateMachine,
+        S::MutationCommand: std::fmt::Debug + From<Vec<u8>>,
         Standard: Distribution<S::MutationCommand>
     {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> RaftNode<S> {

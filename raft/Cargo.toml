@@ -23,7 +23,7 @@ serde_millis = "0.1.1"
 simple_logger = { version = "2.1.0", features = ["colors", "timestamps"] }
 tokio = { version = "1.17.0", features = ["net", "time", "io-util", "rt", "macros", "rt-multi-thread", "sync", "fs"] }
 proto = { path = "../proto" }
-state_machine = { path = "../state_machine", features=["impls", "hashbrown", "random"] }
+state_machine = { path = "../state_machine", features=["impls", "hashbrown", "random", "msgpack"] }
 tonic = "0.7.1"
 bytes = "1.1.0"
 anyhow = "1.0.57"

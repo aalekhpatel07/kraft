@@ -10,7 +10,7 @@ use log::{info, trace, debug};
 pub async fn heartbeat<S>(node: &RaftNode<S>, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> 
 where
     S: state_machine::StateMachine,
-    S::MutationCommand: Clone
+    S::MutationCommand: Clone + std::fmt::Debug + From<Vec<u8>>
 {
 
     debug!("Got a request: {:?}", request);
