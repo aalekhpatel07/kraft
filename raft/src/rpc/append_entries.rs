@@ -37,6 +37,10 @@ where
         term: persistent_state.current_term as u64, 
         success: false
     };
+    
+    drop(persistent_state);
+    drop(volatile_state);
+
     node.save().expect("Could not save state.");
 
     // // Reply false if term < currentTerm.
