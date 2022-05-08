@@ -37,6 +37,7 @@ where
         term: persistent_state.current_term as u64, 
         success: false
     };
+    node.save().expect("Could not save state.");
 
     // // Reply false if term < currentTerm.
     // if append_entries_request.term < persistent_state.current_term as u64 {
