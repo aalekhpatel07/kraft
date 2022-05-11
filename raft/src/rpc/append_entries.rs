@@ -300,18 +300,43 @@ pub mod tests {
         cmd.into()
         // vec![]
     }
+    pub fn command(term: Int, s: &str) -> (Int, Vec<u8>) {
+        let cmd = TryInto::<MutationCommand<String, serde_json::Value>>::try_into(s).expect("Could not parse PUT.");
+        (term, cmd.into())
+    }
 
     append_entries_test!(
         /// Test that append entries works fine.
         initial,
         State { current_term: 0, voted_for: None, log: vec![] },
         VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
-        (0, 1, 0, 0, vec![(0u64, mutation_command("PUT x 3"))], 0), 
+        (0, 1, 0, 0, vec![command(0, "PUT x 3")], 0), 
         (0, false), 
         State { current_term: 0, voted_for: None, log: vec![] },
         VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
     );
 
+    append_entries_test!(
+        /// Test that when a leader sends some entries to append after (term, index): (6, 10)
+        /// and the follower does not have an entry (with term 6 at index 10), the follower refuses
+        /// to append entries and notifies the leader of its latest term and the first index for the latest term.
+        /// Since the follower does nothing else, there should be no state change (persistent or volatile).
+        case_a,
+        State { 
+            current_term: 6, 
+            voted_for: Some(1), 
+            log: log_entries_from_term_sequence(&[1, 1, 1, 4, 4, 5, 5, 6, 6]).into_iter().map(|(term, cmd)| (term, cmd.into())).collect()
+        },
+        VolatileState::NonLeader(NonLeaderState { commit_index: 9, last_applied: 9 }), 
+        (6, 1, 10, 6, log_entries_from_term_sequence(&[6, 6]), 9), 
+        (6, false, 8, 6), 
+        State { 
+            current_term: 6, 
+            voted_for: Some(1), 
+            log: log_entries_from_term_sequence(&[1, 1, 1, 4, 4, 5, 5, 6, 6]).into_iter().map(|(term, cmd)| (term, cmd.into())).collect()
+        },
+        VolatileState::NonLeader(NonLeaderState { commit_index: 9, last_applied: 9})
+    );
 
     // append_entries_test!(
     //     /// Test that append entries works fine.
@@ -341,10 +366,10 @@ pub mod tests {
 
             let cmd: MutationCommand<String, serde_json::Value> = match rng.gen_range(0..=1) {
                 0 => {
-                    MutationCommand::PUT(PutCommand { key: random_string(&mut rng, 2), value: serde_json::json!({"dog": "cat"}) })
+                    MutationCommand::PUT(PutCommand { key: random_string(&mut rng, 1), value: serde_json::json!(null) })
                 },
                 _ => {
-                    MutationCommand::DELETE(DeleteCommand { key: random_string(&mut rng, 2)})
+                    MutationCommand::DELETE(DeleteCommand { key: random_string(&mut rng, 1)})
                 }
             };
 
