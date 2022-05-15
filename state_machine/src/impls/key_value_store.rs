@@ -53,40 +53,32 @@ pub struct Response<V> {
     pub value: V
 }
 
+/// A command is something that the state machine receives and processes.
+#[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]
+pub enum Command<K, V> {
+    /// A command to retrieve the value corresponding to a given key.
+    GET(GetCommand<K>),
+    /// A command to assign a given value to a given key. If the key previously exists,
+    /// it returns the previously assigned value.
+    PUT(PutCommand<K, V>),
+    /// A command to delete a key.
+    DELETE(DeleteCommand<K>)
+}
+
+
+
+
 
 pub mod parse { 
     use std::str::FromStr;
-    use serde_json::Serializer;
+
 
     use super::{
         PutCommand, 
         GetCommand,
-        DeleteCommand, MutationCommand, QueryCommand
+        DeleteCommand, MutationCommand, QueryCommand,
+        Command
     };
-
-    // #[derive(Debug)]
-    // pub enum KeyValueParseError<'a, K, V> 
-    // where
-    //     K: FromStr,
-    //     V: FromStr,
-    //     K::Err: std::fmt::Debug,
-    //     V::Err: std::fmt::Debug
-    // {
-    //     KeyParseError(ParseError<K>),
-    //     ValueParseError(ParseError<V>),
-    //     CommandParseError(&'a str)
-    // }
-
-
-    // pub enum KeyParseError<'a, K> 
-    // where
-    //     K: FromStr,
-    //     K::Err: std::fmt::Debug
-    // {
-    //     KeyParseError(ParseError<K>),
-    //     CommandParseError(&'a str)
-    // }
-
 
     #[derive(Debug)]
     pub struct ParseError<T>
@@ -268,6 +260,28 @@ pub mod parse {
         }
     }
 
+    impl<K, V> TryFrom<&str> for Command<K, V>
+    where
+        K: FromStr,
+        K::Err: std::fmt::Debug,
+        V: FromStr,
+        V::Err: std::fmt::Debug
+    {
+        type Error = KeyValueError<'static, K::Err, V::Err>;
+
+        fn try_from(value: &str) -> Result<Self, Self::Error> {
+            if let Ok(PutCommand { key, value: val }) = value.try_into() {
+                Ok(Command::PUT(PutCommand {key, value: val}))
+            } else if let Ok(DeleteCommand { key }) = value.try_into() {
+                Ok(Command::DELETE(DeleteCommand { key }))
+            } else if let Ok(GetCommand { key }) = value.try_into() {
+                Ok(Command::GET(GetCommand { key }))
+            } else {
+                Err(Self::Error::CommandError(ParseError { error: "Could not parse given value into a valid command." }))
+            }
+        }
+    }
+
     impl<K, V> From<Vec<u8>> for MutationCommand<K, V> 
     where
         K: serde::de::DeserializeOwned,
@@ -302,7 +316,46 @@ pub mod parse {
                 let serialized = rmp_serde::to_vec(&self).expect("Couldn't serialize MutationCommand.");
                 serialized
             }
+        }
+    }
 
+
+    impl<K, V> From<Vec<u8>> for Command<K, V> 
+    where
+        K: serde::de::DeserializeOwned,
+        V: serde::de::DeserializeOwned
+    {
+
+        fn from(serialized: Vec<u8>) -> Self {
+            #[cfg(not(features = "msgpack"))]
+            let data: Command<K, V> = serde_json::from_slice(&serialized).expect("Couldn't deserialize into a Command.");
+
+            #[cfg(features = "msgpack")]
+            let data: MutationCommand<K, V> = rmp_serde::from_slice(&serialized).expect("Couldn't deserialize msgpack into a Command.");
+
+            data
+        }
+    }
+
+
+    impl<K, V> Into<Vec<u8>> for Command<K, V> 
+    where
+        K: serde::ser::Serialize,
+        V: serde::ser::Serialize
+    {
+
+        fn into(self) -> Vec<u8> {
+            #[cfg(not(features = "msgpack"))]
+            {
+                let serialized = serde_json::to_string(&self).expect("Couldn't serialize Command.");
+                serialized.into_bytes()
+            }
+
+            #[cfg(features = "msgpack")]
+            {
+                let serialized = rmp_serde::to_vec(&self).expect("Couldn't serialize Command into bytes using msgpack.");
+                serialized
+            }
         }
     }
 }

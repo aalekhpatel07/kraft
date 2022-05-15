@@ -21,7 +21,8 @@ use state_machine::impls::key_value_store::{
     PutCommand,
     QueryCommand,
     GetCommand,
-    DeleteCommand
+    DeleteCommand,
+    Command
 };
 use tokio::net::TcpStream;
 use anyhow::Result;
@@ -56,65 +57,6 @@ pub type NodeId = (Int, SocketAddr);
 // pub async fn setup_stream(node: &SocketAddr) -> TcpStream {
 //     TcpStream::connect(node).await.expect(&format!("Couldn't connect to {node:?}"))
 // }
-
-#[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]
-pub enum Command<K, V> {
-    GET(GetCommand<K>),
-    PUT(PutCommand<K, V>),
-    DELETE(DeleteCommand<K>)
-}
-
-
-impl<K, V> TryFrom<&str> for Command<K, V>
-where
-    K: FromStr,
-    K::Err: std::fmt::Debug,
-    V: FromStr,
-    V::Err: std::fmt::Debug
-{
-    type Error = key_value_store::parse::KeyValueError<'static, K::Err, V::Err>;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if let Ok(PutCommand { key, value: val }) = value.try_into() {
-            Ok(Command::PUT(PutCommand {key, value: val}))
-        } else if let Ok(DeleteCommand { key }) = value.try_into() {
-            Ok(Command::DELETE(DeleteCommand { key }))
-        } else if let Ok(GetCommand { key }) = value.try_into() {
-            Ok(Command::GET(GetCommand { key }))
-        } else {
-            Err(Self::Error::CommandError(key_value_store::parse::ParseError { error: "Could not parse given value into a valid command." }))
-        }
-    }
-}
-
-
-impl<K, V> From<Vec<u8>> for Command<K, V> 
-where
-    K: serde::de::DeserializeOwned,
-    V: serde::de::DeserializeOwned
-{
-
-    fn from(serialized: Vec<u8>) -> Self {
-        let data: Command<K, V> = serde_json::from_slice(&serialized).expect("Couldn't deserialize into a Command.");
-        data
-    }
-}
-
-
-impl<K, V> Into<Vec<u8>> for Command<K, V> 
-where
-    K: serde::ser::Serialize,
-    V: serde::ser::Serialize
-{
-
-    fn into(self) -> Vec<u8> {
-        let serialized = serde_json::to_string(&self).expect("Couldn't serialize Command.");
-        serialized.into_bytes()
-    }
-}
-
-
-
 
 pub async fn process(stream: Arc<tokio::sync::Mutex<tokio::net::TcpStream>>, s: String)
 {
