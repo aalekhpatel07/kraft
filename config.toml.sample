@@ -1,0 +1,9 @@
+[[rafts]]
+id = 1
+addr = "192.168.1.113:60000"
+log_file = "/tmp/raft.log"
+
+[[rafts]]
+id = 2
+addr = "192.168.1.137:60000"
+log_file = "/tmp/raft.log"

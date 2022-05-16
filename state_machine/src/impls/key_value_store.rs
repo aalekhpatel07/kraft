@@ -8,7 +8,7 @@ use std::hash::Hash;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use serde_derive::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use log::{debug};
 
 use anyhow::Result;
@@ -65,6 +65,91 @@ pub enum Command<K, V> {
     DELETE(DeleteCommand<K>)
 }
 
+
+pub mod pretty {
+    use std::fmt::Write;
+    use core::fmt::Display;
+
+    use super::{
+        Command,
+        QueryCommand,
+        MutationCommand,
+        GetCommand,
+        PutCommand,
+        DeleteCommand
+    };
+
+    // impl<K, V> Display for Command<K, V> 
+    // where
+    //     K: Display,
+    //     V: Display
+    // {
+    //     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    //         write!(f, "{}", self).unwrap();
+    //         Ok(())
+    //     }
+    // }
+
+    impl<K> Display for GetCommand<K> 
+    where
+        K: Display
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "GET {}", self.key).unwrap();
+            Ok(())
+        }
+    }
+    impl<K, V> Display for PutCommand<K, V> 
+    where
+        K:Display,
+        V:Display
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "PUT {} {}", self.key, self.value).unwrap();
+            Ok(())
+        }
+    }
+    impl<K> Display for DeleteCommand<K> 
+    where
+        K: Display
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+            write!(f, "DELETE {}", self.key).unwrap();
+            Ok(())
+        }
+    }
+    impl<K> Display for QueryCommand<K> 
+    where
+        K: Display
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                QueryCommand::GET(get) => {
+                    write!(f, "QUERY({})", get).unwrap();
+                },
+            }
+            Ok(())
+        }
+    }
+    impl<K, V> core::fmt::Display for MutationCommand<K, V> 
+    where
+        K: Display,
+        V: Display
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                MutationCommand::PUT(put) => {
+                    write!(f, "MUTATION({})", put).unwrap();
+                },
+                MutationCommand::DELETE(delete) => {
+                    write!(f, "MUTATION({})", delete).unwrap();
+                }
+            }
+            Ok(())
+        }
+    }
+}
 
 
 

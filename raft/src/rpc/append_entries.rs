@@ -233,6 +233,7 @@ pub mod tests {
             $final_volatile_state:expr
         ) => {
                 $(#[$meta])*
+                #[ignore]
                 #[tokio::test]
                 pub async fn $func_name() {
                     set_up_logging();
@@ -315,7 +316,6 @@ pub mod tests {
         State { current_term: 0, voted_for: None, log: vec![] },
         VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
     );
-
     append_entries_test!(
         /// Test that when a leader sends some entries to append after (term, index): (6, 10)
         /// and the follower does not have an entry (with term 6 at index 10), the follower refuses

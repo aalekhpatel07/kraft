@@ -20,4 +20,8 @@ pub struct Args {
     /// The path to the log file.
     #[clap(long, default_value = "/tmp/raft_log.gz")]
     pub log_file: String,
+
+    #[clap(long, default_value = "/etc/raft/config.toml")]
+    pub config: String
+    
 }
