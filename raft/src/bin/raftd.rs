@@ -29,8 +29,8 @@ pub async fn process_client(socket: TcpStream) {
             trace!("Read {bytes_read} into buffer: {line:#?}");
 
             let cmd: Command<String, serde_json::Value> = {
-                let bytes = line.trim().as_bytes().to_owned();
-                bytes.into()
+                let error_message = format!("Couldn't convert {} into a Command.", line.trim());
+                line.trim().try_into().expect(&error_message)
             };
 
             info!("Should process: {cmd:#?}");
@@ -77,23 +77,18 @@ pub async fn start_server(addr: SocketAddr) -> tokio::task::JoinHandle<()> {
 pub async fn main() {
     set_up_logging();
 
-    let server_handle = start_server("127.0.0.1:60000".parse().expect("Couldn't parse into SocketAddr.")).await;
-
-    // let mut node: RaftNode<KeyValueStore<String, Value>> = RaftNode::default();
-    // node.meta.addr = "127.0.0.1:60001".to_owned();
-    // node.meta.id = 1;
+    let server_handle = start_server("0.0.0.0:60000".parse().expect("Couldn't parse into SocketAddr.")).await;
 
     let mut node_map = HashMap::new();
 
     let config = Config::default();
-    // info!("Config: {:?}", config);
     for raft in config.rafts {
         let mut node: RaftNode<KeyValueStore<String, Value>> = RaftNode::default();
 
         node.meta.addr = raft.addr.to_string();
         node.meta.id = raft.id;
         node.meta.log_file = raft.log_file;
-        node_map.insert(node.meta.id, node.meta.addr);
+        node_map.insert(node.meta.id, node);
 
     }
 

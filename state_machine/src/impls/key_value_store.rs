@@ -416,7 +416,7 @@ pub mod parse {
             let data: Command<K, V> = serde_json::from_slice(&serialized).expect("Couldn't deserialize into a Command.");
 
             #[cfg(features = "msgpack")]
-            let data: MutationCommand<K, V> = rmp_serde::from_slice(&serialized).expect("Couldn't deserialize msgpack into a Command.");
+            let data: Command<K, V> = rmp_serde::from_slice(&serialized).expect("Couldn't deserialize msgpack into a Command.");
 
             data
         }
