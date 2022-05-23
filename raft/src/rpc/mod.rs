@@ -9,19 +9,20 @@ use proto::{
     VoteResponse,
     AppendEntriesRequest,
     AppendEntriesResponse,
-    leader_rpc_server::{LeaderRpc},
-    candidate_rpc_server::{CandidateRpc}
+    raft_rpc_server::{RaftRpc}
 };
-pub mod request_vote;
-pub mod append_entries;
-pub mod heartbeat;
+mod request_vote;
+mod append_entries;
+mod heartbeat;
 use anyhow::Result;
+use log::{info};
+use crate::utils::test_utils::set_up_logging;
 
 
 #[tonic::async_trait]
-impl<S, T> LeaderRpc for Raft<S, T> 
+impl<S, T> RaftRpc for Raft<S, T> 
 where
-    T: 'static + Send,
+    T: 'static + Send+ Clone + Serialize + DeserializeOwned + From<Vec<u8>> + std::fmt::Debug,
     S: 'static + Send + Sync,
 {
     async fn append_entries(&self, request: Request<AppendEntriesRequest>) -> Result<Response<AppendEntriesResponse>, Status> {
@@ -30,15 +31,7 @@ where
     async fn heartbeat(&self, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> {
         Ok(heartbeat::heartbeat(self, request).await?)
     }
-}
 
-
-#[tonic::async_trait]
-impl<S, T> CandidateRpc for Raft<S, T> 
-where
-    T: 'static + Send + Clone + Serialize + DeserializeOwned + std::fmt::Debug + From<Vec<u8>>,
-    S: 'static + Send + Sync + Clone
-{
     async fn request_vote(&self, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> {
         Ok(request_vote::request_vote(self, request).await?)
     }
@@ -46,7 +39,7 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use proto::{leader_rpc_server::LeaderRpc, candidate_rpc_server::CandidateRpc};
+    use proto::{raft_rpc_server::RaftRpc};
     use state_machine::impls::key_value_store::KeyValueStore;
     use tonic::Request;
 
@@ -59,7 +52,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_append_entries_basic() {
         set_up_logging();
-        let node: Raft<Follower, String> = Raft::default();
+        let node: Raft<Follower, Vec<u8>> = Raft::default();
         let request = Request::new(AppendEntriesRequest::default());
         let response = node.append_entries(request).await.unwrap();
 
@@ -73,7 +66,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_heartbeat_basic() {
         set_up_logging();
-        let node: Raft<Follower, String> = Raft::default();
+        let node: Raft<Follower, Vec<u8>> = Raft::default();
         let request = Request::new(HeartbeatRequest::default());
         let response = node.heartbeat(request).await.unwrap();
 

@@ -99,14 +99,14 @@ pub struct VoteResponse {
     pub vote_granted: bool,
 }
 /// Generated client implementations.
-pub mod leader_rpc_client {
+pub mod raft_rpc_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     #[derive(Debug, Clone)]
-    pub struct LeaderRpcClient<T> {
+    pub struct RaftRpcClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl LeaderRpcClient<tonic::transport::Channel> {
+    impl RaftRpcClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -117,7 +117,7 @@ pub mod leader_rpc_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> LeaderRpcClient<T>
+    impl<T> RaftRpcClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
@@ -131,7 +131,7 @@ pub mod leader_rpc_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> LeaderRpcClient<InterceptedService<T, F>>
+        ) -> RaftRpcClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -145,7 +145,7 @@ pub mod leader_rpc_client {
                 http::Request<tonic::body::BoxBody>,
             >>::Error: Into<StdError> + Send + Sync,
         {
-            LeaderRpcClient::new(InterceptedService::new(inner, interceptor))
+            RaftRpcClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with `gzip`.
         ///
@@ -178,7 +178,7 @@ pub mod leader_rpc_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/raft.LeaderRpc/append_entries",
+                "/raft.RaftRpc/append_entries",
             );
             self.inner.unary(request.into_request(), path, codec).await
         }
@@ -197,74 +197,8 @@ pub mod leader_rpc_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/raft.LeaderRpc/Heartbeat");
+            let path = http::uri::PathAndQuery::from_static("/raft.RaftRpc/Heartbeat");
             self.inner.unary(request.into_request(), path, codec).await
-        }
-    }
-}
-/// Generated client implementations.
-pub mod candidate_rpc_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::*;
-    #[derive(Debug, Clone)]
-    pub struct CandidateRpcClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl CandidateRpcClient<tonic::transport::Channel> {
-        /// Attempt to create a new client by connecting to a given endpoint.
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
-    }
-    impl<T> CandidateRpcClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> CandidateRpcClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
-                >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
-        {
-            CandidateRpcClient::new(InterceptedService::new(inner, interceptor))
-        }
-        /// Compress requests with `gzip`.
-        ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
-        #[must_use]
-        pub fn send_gzip(mut self) -> Self {
-            self.inner = self.inner.send_gzip();
-            self
-        }
-        /// Enable decompressing responses with `gzip`.
-        #[must_use]
-        pub fn accept_gzip(mut self) -> Self {
-            self.inner = self.inner.accept_gzip();
-            self
         }
         /// A candidate-to-follower RPC that requests for a vote to become leader in the latest election term.
         pub async fn request_vote(
@@ -281,20 +215,18 @@ pub mod candidate_rpc_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/raft.CandidateRpc/RequestVote",
-            );
+            let path = http::uri::PathAndQuery::from_static("/raft.RaftRpc/RequestVote");
             self.inner.unary(request.into_request(), path, codec).await
         }
     }
 }
 /// Generated server implementations.
-pub mod leader_rpc_server {
+pub mod raft_rpc_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with LeaderRpcServer.
+    ///Generated trait containing gRPC methods that should be implemented for use with RaftRpcServer.
     #[async_trait]
-    pub trait LeaderRpc: Send + Sync + 'static {
+    pub trait RaftRpc: Send + Sync + 'static {
         /// A leader-to-* RPC that requests the other nodes to append entries in their logs.
         async fn append_entries(
             &self,
@@ -305,15 +237,20 @@ pub mod leader_rpc_server {
             &self,
             request: tonic::Request<super::HeartbeatRequest>,
         ) -> Result<tonic::Response<super::HeartbeatResponse>, tonic::Status>;
+        /// A candidate-to-follower RPC that requests for a vote to become leader in the latest election term.
+        async fn request_vote(
+            &self,
+            request: tonic::Request<super::VoteRequest>,
+        ) -> Result<tonic::Response<super::VoteResponse>, tonic::Status>;
     }
     #[derive(Debug)]
-    pub struct LeaderRpcServer<T: LeaderRpc> {
+    pub struct RaftRpcServer<T: RaftRpc> {
         inner: _Inner<T>,
         accept_compression_encodings: (),
         send_compression_encodings: (),
     }
     struct _Inner<T>(Arc<T>);
-    impl<T: LeaderRpc> LeaderRpcServer<T> {
+    impl<T: RaftRpc> RaftRpcServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -335,9 +272,9 @@ pub mod leader_rpc_server {
             InterceptedService::new(Self::new(inner), interceptor)
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for LeaderRpcServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for RaftRpcServer<T>
     where
-        T: LeaderRpc,
+        T: RaftRpc,
         B: Body + Send + 'static,
         B::Error: Into<StdError> + Send + 'static,
     {
@@ -353,11 +290,11 @@ pub mod leader_rpc_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/raft.LeaderRpc/append_entries" => {
+                "/raft.RaftRpc/append_entries" => {
                     #[allow(non_camel_case_types)]
-                    struct append_entriesSvc<T: LeaderRpc>(pub Arc<T>);
+                    struct append_entriesSvc<T: RaftRpc>(pub Arc<T>);
                     impl<
-                        T: LeaderRpc,
+                        T: RaftRpc,
                     > tonic::server::UnaryService<super::AppendEntriesRequest>
                     for append_entriesSvc<T> {
                         type Response = super::AppendEntriesResponse;
@@ -393,12 +330,10 @@ pub mod leader_rpc_server {
                     };
                     Box::pin(fut)
                 }
-                "/raft.LeaderRpc/Heartbeat" => {
+                "/raft.RaftRpc/Heartbeat" => {
                     #[allow(non_camel_case_types)]
-                    struct HeartbeatSvc<T: LeaderRpc>(pub Arc<T>);
-                    impl<
-                        T: LeaderRpc,
-                    > tonic::server::UnaryService<super::HeartbeatRequest>
+                    struct HeartbeatSvc<T: RaftRpc>(pub Arc<T>);
+                    impl<T: RaftRpc> tonic::server::UnaryService<super::HeartbeatRequest>
                     for HeartbeatSvc<T> {
                         type Response = super::HeartbeatResponse;
                         type Future = BoxFuture<
@@ -431,109 +366,10 @@ pub mod leader_rpc_server {
                     };
                     Box::pin(fut)
                 }
-                _ => {
-                    Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", "12")
-                                .header("content-type", "application/grpc")
-                                .body(empty_body())
-                                .unwrap(),
-                        )
-                    })
-                }
-            }
-        }
-    }
-    impl<T: LeaderRpc> Clone for LeaderRpcServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self {
-                inner,
-                accept_compression_encodings: self.accept_compression_encodings,
-                send_compression_encodings: self.send_compression_encodings,
-            }
-        }
-    }
-    impl<T: LeaderRpc> Clone for _Inner<T> {
-        fn clone(&self) -> Self {
-            Self(self.0.clone())
-        }
-    }
-    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{:?}", self.0)
-        }
-    }
-    impl<T: LeaderRpc> tonic::transport::NamedService for LeaderRpcServer<T> {
-        const NAME: &'static str = "raft.LeaderRpc";
-    }
-}
-/// Generated server implementations.
-pub mod candidate_rpc_server {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with CandidateRpcServer.
-    #[async_trait]
-    pub trait CandidateRpc: Send + Sync + 'static {
-        /// A candidate-to-follower RPC that requests for a vote to become leader in the latest election term.
-        async fn request_vote(
-            &self,
-            request: tonic::Request<super::VoteRequest>,
-        ) -> Result<tonic::Response<super::VoteResponse>, tonic::Status>;
-    }
-    #[derive(Debug)]
-    pub struct CandidateRpcServer<T: CandidateRpc> {
-        inner: _Inner<T>,
-        accept_compression_encodings: (),
-        send_compression_encodings: (),
-    }
-    struct _Inner<T>(Arc<T>);
-    impl<T: CandidateRpc> CandidateRpcServer<T> {
-        pub fn new(inner: T) -> Self {
-            Self::from_arc(Arc::new(inner))
-        }
-        pub fn from_arc(inner: Arc<T>) -> Self {
-            let inner = _Inner(inner);
-            Self {
-                inner,
-                accept_compression_encodings: Default::default(),
-                send_compression_encodings: Default::default(),
-            }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
-        {
-            InterceptedService::new(Self::new(inner), interceptor)
-        }
-    }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for CandidateRpcServer<T>
-    where
-        T: CandidateRpc,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
-    {
-        type Response = http::Response<tonic::body::BoxBody>;
-        type Error = std::convert::Infallible;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(
-            &mut self,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            let inner = self.inner.clone();
-            match req.uri().path() {
-                "/raft.CandidateRpc/RequestVote" => {
+                "/raft.RaftRpc/RequestVote" => {
                     #[allow(non_camel_case_types)]
-                    struct RequestVoteSvc<T: CandidateRpc>(pub Arc<T>);
-                    impl<T: CandidateRpc> tonic::server::UnaryService<super::VoteRequest>
+                    struct RequestVoteSvc<T: RaftRpc>(pub Arc<T>);
+                    impl<T: RaftRpc> tonic::server::UnaryService<super::VoteRequest>
                     for RequestVoteSvc<T> {
                         type Response = super::VoteResponse;
                         type Future = BoxFuture<
@@ -583,7 +419,7 @@ pub mod candidate_rpc_server {
             }
         }
     }
-    impl<T: CandidateRpc> Clone for CandidateRpcServer<T> {
+    impl<T: RaftRpc> Clone for RaftRpcServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -593,7 +429,7 @@ pub mod candidate_rpc_server {
             }
         }
     }
-    impl<T: CandidateRpc> Clone for _Inner<T> {
+    impl<T: RaftRpc> Clone for _Inner<T> {
         fn clone(&self) -> Self {
             Self(self.0.clone())
         }
@@ -603,7 +439,7 @@ pub mod candidate_rpc_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: CandidateRpc> tonic::transport::NamedService for CandidateRpcServer<T> {
-        const NAME: &'static str = "raft.CandidateRpc";
+    impl<T: RaftRpc> tonic::transport::NamedService for RaftRpcServer<T> {
+        const NAME: &'static str = "raft.RaftRpc";
     }
 }

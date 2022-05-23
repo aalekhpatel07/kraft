@@ -11,50 +11,55 @@ use serde_json::Value;
 use tokio::io::BufReader;
 use tokio::io::AsyncBufReadExt;
 use raft::config::Config;
+use proto::raft_rpc_server::RaftRpcServer;
 
 // use raft::config::Config;
 
 
+// pub async fn process_client(socket: TcpStream) {
+//     let mut stream = BufReader::new(socket);
+
+//     let mut line = String::new();
+
+//     while let Ok(bytes_read) = stream.read_line(&mut line).await {
+//         if bytes_read == 0 {
+//             trace!("End of input from socket. line: {line:?}, stream: {stream:?}");
+//             return;
+//         } 
+//         else {
+//             trace!("Read {bytes_read} into buffer: {line:#?}");
+
+//             let cmd: Command<String, serde_json::Value> = {
+//                 let error_message = format!("Couldn't convert {} into a Command.", line.trim());
+//                 line.trim().try_into().expect(&error_message)
+//             };
+
+//             info!("Should process: {cmd:#?}");
+
+//             // stream.write_all(line.as_bytes()).await.expect("Couldn't echo back.");
+//             line.clear();
+//         }
+//     }
+//     // else {
+//     //     warn!("Couldn't read stream: {stream:?}, line: {line:?}");
+//     // }
+
+//     // while let Ok(bytes_read) = stream.read_line(&mut line).await {
+//         // if bytes_read == 0 {
+//         //     trace!("End of input from socket.");
+//         //     break
+//         //     // vreturn
+//         // }
+//         // else {
+//         //     trace!("Read {bytes_read} into buffer: {line:?}");
+//         //     info!("Should process: {line:?}");
+//         //     line.clear();
+//         // }
+//     // }
+
+// }
+
 pub async fn process_client(socket: TcpStream) {
-    let mut stream = BufReader::new(socket);
-
-    let mut line = String::new();
-
-    while let Ok(bytes_read) = stream.read_line(&mut line).await {
-        if bytes_read == 0 {
-            trace!("End of input from socket. line: {line:?}, stream: {stream:?}");
-            return;
-        } 
-        else {
-            trace!("Read {bytes_read} into buffer: {line:#?}");
-
-            let cmd: Command<String, serde_json::Value> = {
-                let error_message = format!("Couldn't convert {} into a Command.", line.trim());
-                line.trim().try_into().expect(&error_message)
-            };
-
-            info!("Should process: {cmd:#?}");
-
-            // stream.write_all(line.as_bytes()).await.expect("Couldn't echo back.");
-            line.clear();
-        }
-    }
-    // else {
-    //     warn!("Couldn't read stream: {stream:?}, line: {line:?}");
-    // }
-
-    // while let Ok(bytes_read) = stream.read_line(&mut line).await {
-        // if bytes_read == 0 {
-        //     trace!("End of input from socket.");
-        //     break
-        //     // vreturn
-        // }
-        // else {
-        //     trace!("Read {bytes_read} into buffer: {line:?}");
-        //     info!("Should process: {line:?}");
-        //     line.clear();
-        // }
-    // }
 
 }
 
@@ -81,18 +86,19 @@ pub async fn main() {
 
     let config = Config::default();
     
-    let mut node: Raft<Follower, Vec<u8>> = Raft::new();
-    node.meta.id = config.id;
-    node.meta.log_file = config.log_file;
-
-
-    for raft in config.rafts {
-        node.cluster.insert(raft.id, raft);
-    }
+    let node: Raft<Follower, Vec<u8>> = config.into();
 
     info!("Cluster: {:#?}", node.cluster);
+    // let follower_handle = tokio::spawn(async move {
+    //     node.start().await
+    // });
 
-    server_handle.await.expect("Couldn't join server handle.");
+    // let z = tokio::join!(follower_handle, server_handle);
+    // z.0.unwrap();
+    // z.1.unwrap();
+    // server_handle.await.expect("Couldn't join server handle.");
+
+    // tokio::join!()
     // tokio::join(server_handle);
     // loop {
     //     tokio::spawn(async move {

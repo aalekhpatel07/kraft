@@ -226,8 +226,7 @@ where
 pub mod tests {
     use crate::utils::test_utils::set_up_logging;
     use crate::node::{Raft, Int, Follower, PersistentState, VolatileState};
-    use proto::leader_rpc_server::LeaderRpc;
-    use proto::candidate_rpc_server::CandidateRpc;
+    use proto::raft_rpc_server::RaftRpc;
     use crate::storage::state::raft_io::ReadWriteState;
 
     use state_machine::impls::key_value_store::*;

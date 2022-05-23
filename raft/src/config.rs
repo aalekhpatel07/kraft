@@ -1,7 +1,15 @@
 use std::io::Read;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use anyhow::Result;
-use crate::node::ClusterNode;
+#[cfg(feature = "hashbrown")]
+use hashbrown::HashMap;
+use serde::de::DeserializeOwned;
+use serde::{Serialize, Deserialize};
+#[cfg(not(feature = "hashbrown"))]
+use std::collections::HashMap;
+
+use crate::node::{Raft, ClusterNode, Follower, NodeMetadata, PersistentState, VolatileState};
 
 /// The configuration that provides the information about a particular Raft node in a cluster.
 #[derive(Debug, Clone, serde_derive::Deserialize, serde_derive::Serialize)]

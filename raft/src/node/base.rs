@@ -1,16 +1,21 @@
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
+use crate::config::Config;
 // use crate::storage::state::persistent::{self, State};
 use crate::storage::state::raft_io::ReadWriteState;
 use std::fs::File;
 use anyhow::Result;
 use std::env::temp_dir;
-use proto::{LogEntry as ProtoLogEntry};
-use log::{trace};
+use proto::{LogEntry as ProtoLogEntry, AppendEntriesRequest, AppendEntriesResponse, HeartbeatResponse, HeartbeatRequest, VoteRequest, VoteResponse};
+use log::{trace, info, error};
 use hashbrown::HashMap;
+use crate::rpc;
+use proto::raft_rpc_server::RaftRpc;
+use tokio::sync::mpsc;
 
 
 pub type Int = u64;
@@ -158,7 +163,7 @@ impl From<HashMap<Int, ClusterNode>> for LeaderVolatileState {
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Raft<S, T> {
     /// For each server, the index of the next log entry
     /// to send to that server (initialized to leader's last log index + 1).
@@ -166,7 +171,7 @@ pub struct Raft<S, T> {
     pub cluster: HashMap<Int, ClusterNode>,
     pub persistent_data: Arc<Mutex<PersistentState<T>>>,
     pub volatile_data: Arc<Mutex<VolatileState>>,
-    pub node_state: S
+    pub node_state: S,
 }
 
 
@@ -197,7 +202,7 @@ impl<T> From<Raft<Follower, T>> for Raft<Candidate, T> {
             meta: raft.meta,
             cluster: raft.cluster,
             persistent_data: raft.persistent_data,
-            node_state: Candidate
+            node_state: Candidate,
         }
     }
 }
@@ -251,12 +256,13 @@ where
     S: Default
 {
     fn default() -> Self {
+
         Self { 
             persistent_data: Arc::new(Mutex::new(PersistentState::new())), 
             meta: NodeMetadata::new(), 
             cluster: HashMap::new(),
             volatile_data: Arc::new(Mutex::new(VolatileState::default())), 
-            node_state: S::default()
+            node_state: S::default(),
         }
     }
 }
@@ -301,23 +307,73 @@ where
     }
 }
 
-// impl<T> Default for Raft<Follower, T> {
-//     fn default() -> Self {
-        
-//     }
-// }
 
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-// pub struct RaftNode<S>
-// where
-//     S: state_machine::StateMachine,
-//     S::MutationCommand: std::fmt::Debug + From<Vec<u8>>
-// {
-//     pub node_type: NodeType,
-//     pub meta: NodeMetadata,
-//     pub persistent_state: Arc<Mutex<State<S::MutationCommand>>>,
-//     pub volatile_state: Arc<Mutex<volatile::VolatileState>>
-// }
+impl<S, T> From<Config> for Raft<S, T>
+where
+    T: Serialize + DeserializeOwned,
+    S: Default
+{
+    fn from(config: Config) -> Self {
+
+        Raft { 
+            meta: NodeMetadata {id: config.id, addr: "0.0.0.0:60000".to_owned(), log_file: config.log_file.clone() }, 
+            cluster: config.rafts.iter().map(|raft| (raft.id, raft.clone())).collect(), 
+            persistent_data: Arc::new(Mutex::new(PersistentState::new())), 
+            volatile_data: Arc::new(Mutex::new(VolatileState::new())), 
+            node_state: S::default(),
+        }
+    }
+}
+
+
+pub trait RaftLogEntry: Clone + Send + Serialize + DeserializeOwned + std::fmt::Debug + From<Vec<u8>> {}
+impl<T> RaftLogEntry for T 
+where
+    T: 'static + Clone + Send + Serialize + DeserializeOwned + std::fmt::Debug + From<Vec<u8>>
+{}
+
+
+use tokio::time::timeout;
+
+impl<T> Raft<Follower, T> 
+where
+    T: RaftLogEntry
+{
+    // pub async fn start(&self) {
+    //     info!("Starting the election timer of 2s for the follower.");
+    //     while let Ok(recvd) = 
+    //         timeout(
+    //             Duration::from_secs(2), 
+    //             self.channels_vote_request.lock().await.incoming_vote_request.recv()
+    //         )
+    //         .await 
+    //     {
+    //         info!("Stuff received {:#?}", recvd);
+    //         self
+    //             .channels_vote_request
+    //             .lock()
+    //             .await
+    //             .outbound_vote_response
+    //             .send(
+    //                 VoteResponse { term: 0, vote_granted: false }
+    //             )
+    //             .await
+    //             .unwrap()
+    //         ;
+    //     }
+    //     error!("Didn't receive any vote request in 2s. Now should become candidate.");
+    //     // let candidate: Raft<Candidate, T> = self.into();
+    //     // loop {
+    //     //     if let Err
+    //     //     self.request_vote().await
+    //     // }
+    // }
+
+    pub fn reset_election_timer(&self) {
+
+    }
+}
+
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct NodeMetadata {
@@ -372,9 +428,6 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
     use crate::utils::test_utils::set_up_logging;
     use log::{debug, info};
-
-    #[cfg(feature = "random")]
-    use rand::{Rng, thread_rng};
 
 
     #[test]
