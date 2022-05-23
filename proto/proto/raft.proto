@@ -78,12 +78,14 @@ message VoteResponse {
     bool vote_granted = 2;
 }
 
-// The RPCs involved in Raft.
-service RaftRPC {
+service LeaderRpc {
     // A leader-to-* RPC that requests the other nodes to append entries in their logs.
-    rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {};
+    rpc append_entries(AppendEntriesRequest) returns (AppendEntriesResponse) {};
     // A leader-to-* RPC that informs the other notes of its leadership and existence.
     rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {};
+}
+
+service CandidateRpc {
     // A candidate-to-follower RPC that requests for a vote to become leader in the latest election term.
     rpc RequestVote(VoteRequest) returns (VoteResponse) {};
 }

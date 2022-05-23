@@ -1,10 +1,10 @@
-use proto::raft::{
+use proto::{
     VoteRequest, 
     VoteResponse,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tonic::{Request, Response, Status};
-use crate::{node::RaftNode, storage::state::persistent::Log};
+use crate::{node::{Raft, Log, Follower}};
 use log::{debug, info, trace, warn};
 
 
@@ -52,10 +52,10 @@ use log::{debug, info, trace, warn};
 /// }
 /// ```
 /// 
-pub async fn request_vote<S>(node: &RaftNode<S>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
+pub async fn request_vote<S, T>(node: &Raft<S, T>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
 where
-    S: state_machine::StateMachine,
-    S::MutationCommand: Clone + Serialize + DeserializeOwned + From<Vec<u8>> + std::fmt::Debug
+    T: Clone + Serialize + DeserializeOwned + From<Vec<u8>> + std::fmt::Debug,
+
 {
     trace!("Got a Vote request: {:?}", request);
 
@@ -66,7 +66,7 @@ where
         last_log_term
     } = request.into_inner();
 
-    let mut current_state_guard = node.persistent_state.lock().expect("Could not lock persistent state.");
+    let mut current_state_guard = node.persistent_data.lock().expect("Could not lock persistent state.");
 
     let latest_term = current_state_guard.current_term;
     let my_id = node.meta.id;
@@ -225,16 +225,18 @@ where
 #[cfg(test)]
 pub mod tests {
     use crate::utils::test_utils::set_up_logging;
-    use crate::node::{RaftNode, Int};
-    use proto::raft::raft_rpc_server::RaftRpc;
+    use crate::node::{Raft, Int, Follower, PersistentState, VolatileState};
+    use proto::leader_rpc_server::LeaderRpc;
+    use proto::candidate_rpc_server::CandidateRpc;
+    use crate::storage::state::raft_io::ReadWriteState;
+
     use state_machine::impls::key_value_store::*;
     use state_machine::StateMachine;
     use log::{info, debug};
     use super::*;
     use tonic::{Request, Response, Status};
-    use crate::storage::state::persistent::State;
-    use crate::storage::state::volatile::{VolatileState, NonLeaderState};
     use std::path::PathBuf;
+    use crate::storage::state::raft_io::*;
 
     use rand::{distributions::Alphanumeric, Rng};
 
@@ -270,16 +272,17 @@ pub mod tests {
                     set_up_logging();
 
                     // This node receives the RPC.
-                    let mut receiver: RaftNode<KeyValueStore<String, String>> = RaftNode::default();
+                    let mut receiver: Raft<Follower, Vec<u8>> = Raft::default();
                     
                     let mut log_file_path = PathBuf::from("/tmp");
                     let log_file_base = rand::thread_rng().sample_iter(&Alphanumeric).take(15).map(char::from).collect::<String>();
                     log_file_path.push(format!("{}.raft", log_file_base));
+
                     receiver.meta.log_file = log_file_path.to_str().expect("Is invalid unicode.").to_owned();
 
                     // Set the initial states as given.
-                    receiver.persistent_state = std::sync::Arc::new(std::sync::Mutex::new($initial_persistent_state));
-                    receiver.volatile_state = std::sync::Arc::new(std::sync::Mutex::new($initial_volatile_state));
+                    receiver.persistent_data = std::sync::Arc::new(std::sync::Mutex::new($initial_persistent_state));
+                    receiver.volatile_data = std::sync::Arc::new(std::sync::Mutex::new($initial_volatile_state));
 
                     // Create a VoteRequest from the given argument.
                     let request = create_request($request.0, $request.1, $request.2, $request.3);
@@ -299,7 +302,7 @@ pub mod tests {
 
                     // Assert the final persistent state is the same as expected.
                     assert_eq!(
-                        &*receiver.persistent_state.lock().expect("Couldn't lock persistent state."),
+                        &*receiver.persistent_data.lock().expect("Couldn't lock persistent state."),
                         &$final_persistent_state,
                         "Persistent state does not match up."
                     );
@@ -312,7 +315,7 @@ pub mod tests {
 
                     // Assert the final volatile state is the same as expected.
                     assert_eq!(
-                        &*receiver.volatile_state.lock().expect("Couldn't lock volatile state."),
+                        &*receiver.volatile_data.lock().expect("Couldn't lock volatile state."),
                         &$final_volatile_state,
                         "Volatile state does not match up."
                     );
@@ -323,12 +326,12 @@ pub mod tests {
     request_vote_test!(
         /// Test that a receiver node grants the vote to any vote request initially.
         initial, 
-        State { current_term: 0, voted_for: None, log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
-        (0, 0, 0, 0), 
-        (0, true), 
-        State { current_term: 0, voted_for: Some(0), log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        PersistentState { current_term: 0, voted_for: None, log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}, 
+        (0, 0, 0, 0),
+        (0, true),
+        PersistentState { current_term: 0, voted_for: Some(0), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 
     request_vote_test!(
@@ -336,12 +339,12 @@ pub mod tests {
         /// the vote to a vote request when the receiver
         /// hasn't voted for anybody yet.
         grant_vote_if_not_voted_yet_and_log_at_least_up_to_date, 
-        State { current_term: 0, voted_for: None, log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
-        (1, 0, 0, 0), 
-        (1, true), 
-        State { current_term: 1, voted_for: Some(0), log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        PersistentState { current_term: 0, voted_for: None, log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}, 
+        (1, 0, 0, 0),
+        (1, true),
+        PersistentState { current_term: 1, voted_for: Some(0), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 
 
@@ -350,14 +353,13 @@ pub mod tests {
         /// a vote request if the candidate
         /// is in a stale election term.
         stale_election_term_denial, 
-        State { current_term: 2, voted_for: None, log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
-        (1, 1, 0, 0), // Candidate is in election term 1.
-        (2, false),  // Send the latest election term.
-        State { current_term: 2, voted_for: None, log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        PersistentState { current_term: 2, voted_for: None, log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}, 
+        (1, 1, 0, 0),
+        (2, false),
+        PersistentState { current_term: 2, voted_for: None, log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
-
 
     request_vote_test!(
         /// Test that a receiver node approves 
@@ -365,12 +367,12 @@ pub mod tests {
         /// if the receiver has already voted for that term
         /// but the vote was for the same candidate.
         approve_vote_if_already_voted_for_same_candidate, 
-        State { current_term: 2, voted_for: Some(1), log: vec![] }, // Already voted for Node 1.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 0, 0), // Candidate is in election term 3.
-        (2, true),  // Send the latest election term.
-        State { current_term: 2, voted_for: Some(1), log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, true), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 
     request_vote_test!(
@@ -379,12 +381,12 @@ pub mod tests {
         /// if the receiver has already voted for that term
         /// but the vote was for the other candidate.
         deny_vote_if_already_voted_for_other_candidate, 
-        State { current_term: 2, voted_for: Some(3), log: vec![] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 2, voted_for: Some(3), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 0, 0), // Candidate is in election term 3.
-        (2, false),  // Send the latest election term.
-        State { current_term: 2, voted_for: Some(3), log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, false), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: Some(3), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 
     request_vote_test!(
@@ -393,14 +395,13 @@ pub mod tests {
         /// if the receiver has already voted for the candidate
         /// but in a previous term.
         approve_vote_if_already_voted_for_same_candidate_but_in_a_previous_term, 
-        State { current_term: 0, voted_for: Some(1), log: vec![] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
-        (2, 1, 0, 0), // Candidate is in election term 2.
-        (2, true),  // Send the latest election term.
-        State { current_term: 2, voted_for: Some(1), log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        PersistentState { current_term: 0, voted_for: Some(1), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}, 
+        (2, 1, 0, 0), // Candidate is in election term 3.
+        (2, true), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
-
 
     request_vote_test!(
         /// Test that a receiver node approves
@@ -408,12 +409,12 @@ pub mod tests {
         /// if the receiver has already voted for some other node
         /// but in a previous term.
         approve_vote_if_already_voted_for_other_candidate_in_a_previous_term, 
-        State { current_term: 0, voted_for: Some(3), log: vec![] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
-        (2, 1, 0, 0), // Candidate is in election term 2.
-        (2, true),  // Send the latest election term.
-        State { current_term: 2, voted_for: Some(1), log: vec![] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        PersistentState { current_term: 0, voted_for: Some(3), log: vec![] }, // Already voted for Node 3.
+        VolatileState { commit_index: 0, last_applied: 0}, 
+        (2, 1, 0, 0), // Candidate is in election term 3.
+        (2, true), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 
     request_vote_test!(
@@ -422,14 +423,13 @@ pub mod tests {
         /// if the receiver has not already voted
         /// and has a fresher log than the candidate.
         deny_vote_if_not_already_voted_and_candidate_log_is_stale, 
-        State { current_term: 2, voted_for: None, log: vec![(1, "PUT x 2".try_into().unwrap())] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 2, voted_for: None, log: vec![(1, vec![])] }, // Already voted for Node 2.
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 0, 0), // Candidate is in election term 2.
-        (2, false),  // Send the latest election term.
-        State { current_term: 2, voted_for: None, log: vec![(1, "PUT x 2".try_into().unwrap())] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, false), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: None, log: vec![(1, vec![])] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
-
 
     request_vote_test!(
         /// Test that a receiver node approves
@@ -437,12 +437,12 @@ pub mod tests {
         /// if the receiver has not already voted
         /// and has candidate has the same log as receiver's.
         approve_vote_if_not_already_voted_and_candidate_log_is_same_as_receiver_log, 
-        State { current_term: 2, voted_for: None, log: vec![(1, "PUT x 2".try_into().unwrap())] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 2, voted_for: None, log: vec![(1, vec![])] }, // Already voted for Node 2.
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 1, 1), // Candidate is in election term 2.
-        (2, true),  // Send the latest election term.
-        State { current_term: 2, voted_for: Some(1), log: vec![(1, "PUT x 2".try_into().unwrap())] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, true), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![(1, vec![])] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 
     request_vote_test!(
@@ -451,12 +451,12 @@ pub mod tests {
         /// if the receiver has not already voted
         /// and has the candidate's last log term is earlier than the receiver's last entry's.
         deny_vote_if_not_already_voted_and_candidates_last_log_term_is_earlier_than_receiver_logs_last_entry, 
-        State { current_term: 2, voted_for: None, log: vec![(2, "PUT x 2".try_into().unwrap())] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 2, voted_for: None, log: vec![(2, vec![])] }, // Already voted for Node 2.
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 1, 1), // Candidate is in election term 2.
-        (2, false),  // Send the latest election term.
-        State { current_term: 2, voted_for: None, log: vec![(2, "PUT x 2".try_into().unwrap())] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, false), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: None, log: vec![(2, vec![])] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 
 
@@ -466,14 +466,13 @@ pub mod tests {
         /// if the receiver has not already voted
         /// and has the candidate has less entries than us.
         deny_vote_if_not_already_voted_and_candidate_has_less_entries_than_receiver, 
-        State { current_term: 2, voted_for: None, log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 2, voted_for: None, log: vec![(2, vec![]), (2, vec![])] }, // Already voted for Node 2.
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 1, 2), // Candidate is in election term 2.
-        (2, false),  // Send the latest election term.
-        State { current_term: 2, voted_for: None, log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, false), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: None, log: vec![(2, vec![]), (2, vec![])] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
-
 
     request_vote_test!(
         /// Test that a receiver node approves
@@ -481,14 +480,13 @@ pub mod tests {
         /// if the receiver has not already voted
         /// and has the candidate has more entries than receiver.
         approve_vote_if_not_already_voted_and_candidate_has_more_entries_than_receiver, 
-        State { current_term: 1, voted_for: Some(2), log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 1, voted_for: Some(2), log: vec![(2, vec![]), (2, vec![])] }, // Already voted for Node 2.
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 4, 3), // Candidate is in election term 2.
-        (2, true),  // Send the latest election term.
-        State { current_term: 2, voted_for: Some(1), log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, true), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![(2, vec![]), (2, vec![])] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
-
 
     request_vote_test!(
         /// Test that a receiver node denies
@@ -497,14 +495,13 @@ pub mod tests {
         /// because it was able to determine that
         /// the candidate has even more stale log.
         deny_vote_if_already_voted_in_some_previous_term_but_candidate_has_more_stale_log_than_receiver, 
-        State { current_term: 2, voted_for: Some(4), log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
-        (6, 1, 2, 1), // Candidate is in election term 6.
-        (6, false),  // Send the latest election term.
-        State { current_term: 6, voted_for: Some(4), log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        PersistentState { current_term: 2, voted_for: Some(4), log: vec![(2, vec![]), (2, vec![])] }, // Already voted for Node 2.
+        VolatileState { commit_index: 0, last_applied: 0}, 
+        (6, 1, 2, 1), // Candidate is in election term 2.
+        (6, false), // Send the latest election term.
+        PersistentState { current_term: 6, voted_for: Some(4), log: vec![(2, vec![]), (2, vec![])] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
-
 
     request_vote_test!(
         /// Test that a receiver node denies
@@ -513,12 +510,12 @@ pub mod tests {
         /// term but the candidate has more stale logs than the
         /// receiver.
         deny_vote_if_already_voted_for_the_same_candidate_in_this_term_but_candidate_has_more_stale_log_than_receiver,
-        State { current_term: 2, voted_for: Some(1), log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![(2, vec![]), (2, vec![])] }, // Already voted for Node 2.
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 2, 1), // Candidate is in election term 2.
-        (2, false),  // Send the latest election term.
-        State { current_term: 2, voted_for: Some(1), log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, false), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![(2, vec![]), (2, vec![])] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 
     request_vote_test!(
@@ -527,11 +524,11 @@ pub mod tests {
         /// if it already voted for it in some previous term
         /// and the candidate has stale logs compared to the receiver.
         deny_vote_if_already_voted_for_the_same_candidate_in_some_previous_term_and_candidate_has_stale_logs,
-        State { current_term: 1, voted_for: Some(1), log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] }, // Already voted for Node 2.
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0}), 
+        PersistentState { current_term: 1, voted_for: Some(1), log: vec![(2, vec![]), (2, vec![])] }, // Already voted for Node 2.
+        VolatileState { commit_index: 0, last_applied: 0}, 
         (2, 1, 2, 1), // Candidate is in election term 2.
-        (2, false),  // Send the latest election term.
-        State { current_term: 2, voted_for: Some(1), log: vec![(2, "PUT x 2".try_into().unwrap()), (2, "PUT x 3".try_into().unwrap())] },
-        VolatileState::NonLeader(NonLeaderState { commit_index: 0, last_applied: 0})
+        (2, false), // Send the latest election term.
+        PersistentState { current_term: 2, voted_for: Some(1), log: vec![(2, vec![]), (2, vec![])] },
+        VolatileState { commit_index: 0, last_applied: 0}
     );
 }

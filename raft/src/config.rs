@@ -1,20 +1,14 @@
 use std::io::Read;
-use std::net::SocketAddr;
 use std::path::Path;
 use anyhow::Result;
+use crate::node::ClusterNode;
 
 /// The configuration that provides the information about a particular Raft node in a cluster.
-
-#[derive(Debug, Clone, serde_derive::Deserialize, serde_derive::Serialize)]
-pub struct Raft {
-    pub id: u64,
-    pub addr: SocketAddr,
-    pub log_file: String
-}
-
 #[derive(Debug, Clone, serde_derive::Deserialize, serde_derive::Serialize)]
 pub struct Config {
-    pub rafts: Vec<Raft>
+    pub rafts: Vec<ClusterNode>,
+    pub id: u64,
+    pub log_file: String
 }
 
 impl Config {

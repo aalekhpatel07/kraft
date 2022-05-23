@@ -1,53 +1,65 @@
-use serde::{Serialize, de::DeserializeOwned};
-use tonic::{Request, Response, Status};
-use crate::{node::{RaftNode}, storage::state::persistent::Log};
-use proto::raft::{
+use serde::{Serialize, de::DeserializeOwned, Deserialize};
+use tonic::{Request, Response, Status, Code};
+use crate::{node::{Raft, Follower, Log}};
+
+use proto::{
     HeartbeatRequest,
     HeartbeatResponse,
     VoteRequest,
     VoteResponse,
     AppendEntriesRequest,
     AppendEntriesResponse,
-    raft_rpc_server::RaftRpc
+    leader_rpc_server::{LeaderRpc},
+    candidate_rpc_server::{CandidateRpc}
 };
 pub mod request_vote;
 pub mod append_entries;
 pub mod heartbeat;
+use anyhow::Result;
 
 
 #[tonic::async_trait]
-impl<S> RaftRpc for RaftNode<S>
+impl<S, T> LeaderRpc for Raft<S, T> 
 where
-    S: 'static + state_machine::StateMachine,
-    S::MutationCommand: 'static + Send + Clone + Serialize + DeserializeOwned + std::fmt::Debug + From<Vec<u8>>
+    T: 'static + Send,
+    S: 'static + Send + Sync,
 {
     async fn append_entries(&self, request: Request<AppendEntriesRequest>) -> Result<Response<AppendEntriesResponse>, Status> {
-        append_entries::append_entries(&self, request).await
+        Ok(append_entries::append_entries(self, request).await?)
     }
     async fn heartbeat(&self, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> {
-        heartbeat::heartbeat(&self, request).await
+        Ok(heartbeat::heartbeat(self, request).await?)
     }
+}
+
+
+#[tonic::async_trait]
+impl<S, T> CandidateRpc for Raft<S, T> 
+where
+    T: 'static + Send + Clone + Serialize + DeserializeOwned + std::fmt::Debug + From<Vec<u8>>,
+    S: 'static + Send + Sync + Clone
+{
     async fn request_vote(&self, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> {
-        request_vote::request_vote(&self, request).await
+        Ok(request_vote::request_vote(self, request).await?)
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use proto::raft::raft_rpc_server::RaftRpc;
+    use proto::{leader_rpc_server::LeaderRpc, candidate_rpc_server::CandidateRpc};
     use state_machine::impls::key_value_store::KeyValueStore;
     use tonic::Request;
 
     use super::*;
-    use crate::{utils::test_utils::set_up_logging, storage::state::persistent::Log};
-    use crate::node::RaftNode;
+    use crate::{utils::test_utils::set_up_logging};
+    use crate::node::{Raft, Follower, Leader, Candidate, Log};
     use log::{info, trace, debug};
 
 
     #[tokio::test]
     async fn test_append_entries_basic() {
         set_up_logging();
-        let node: RaftNode<KeyValueStore<String, usize>> = RaftNode::default();
+        let node: Raft<Follower, String> = Raft::default();
         let request = Request::new(AppendEntriesRequest::default());
         let response = node.append_entries(request).await.unwrap();
 
@@ -61,7 +73,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_heartbeat_basic() {
         set_up_logging();
-        let node: RaftNode<KeyValueStore<String, usize>> = RaftNode::default();
+        let node: Raft<Follower, String> = Raft::default();
         let request = Request::new(HeartbeatRequest::default());
         let response = node.heartbeat(request).await.unwrap();
 
@@ -75,7 +87,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_request_vote_basic() {
         set_up_logging();
-        let node: RaftNode<KeyValueStore<String, usize>> = RaftNode::default();
+        let node: Raft<Follower, Vec<u8>> = Raft::default();
         let request = Request::new(VoteRequest::default());
         let response = node.request_vote(request).await.unwrap();
         let response = response.into_inner();

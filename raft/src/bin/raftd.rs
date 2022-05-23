@@ -5,7 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use log::{trace, debug, info, warn};
 use raft::utils::test_utils::set_up_logging;
-use raft::node::RaftNode;
+use raft::node::{Raft, Follower};
 use state_machine::impls::key_value_store::*;
 use serde_json::Value;
 use tokio::io::BufReader;
@@ -79,20 +79,18 @@ pub async fn main() {
 
     let server_handle = start_server("0.0.0.0:60000".parse().expect("Couldn't parse into SocketAddr.")).await;
 
-    let mut node_map = HashMap::new();
-
     let config = Config::default();
+    
+    let mut node: Raft<Follower, Vec<u8>> = Raft::new();
+    node.meta.id = config.id;
+    node.meta.log_file = config.log_file;
+
+
     for raft in config.rafts {
-        let mut node: RaftNode<KeyValueStore<String, Value>> = RaftNode::default();
-
-        node.meta.addr = raft.addr.to_string();
-        node.meta.id = raft.id;
-        node.meta.log_file = raft.log_file;
-        node_map.insert(node.meta.id, node);
-
+        node.cluster.insert(raft.id, raft);
     }
 
-    info!("Nodes: {:#?}", node_map);
+    info!("Cluster: {:#?}", node.cluster);
 
     server_handle.await.expect("Couldn't join server handle.");
     // tokio::join(server_handle);

@@ -24,7 +24,7 @@ use state_machine::impls::key_value_store::{
     Command
 };
 use anyhow::Result;
-use raft::node::{Int, RaftNode};
+use raft::node::{Int, Raft};
 
 
 #[derive(Parser, Debug)]
