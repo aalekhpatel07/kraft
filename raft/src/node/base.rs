@@ -162,16 +162,41 @@ impl From<HashMap<Int, ClusterNode>> for LeaderVolatileState {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Election {
+    Leader(Leader),
+    Candidate(Candidate),
+    Follower(Follower)
+}
+
+impl Default for Election {
+    fn default() -> Self {
+        Self::Follower(Follower::default())
+    }
+}
+
+impl PartialEq for Election {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Leader(_), Self::Leader(_)) => true,
+            (Self::Candidate(_), Self::Candidate(_)) => true,
+            (Self::Follower(_), Self::Follower(_)) => true,
+            _ => false
+        }
+    }
+}
+
+impl Eq for Election {}
 
 #[derive(Debug)]
-pub struct Raft<S, T> {
+pub struct Raft<T> {
     /// For each server, the index of the next log entry
     /// to send to that server (initialized to leader's last log index + 1).
     pub meta: NodeMetadata,
     pub cluster: HashMap<Int, ClusterNode>,
     pub persistent_data: Arc<Mutex<PersistentState<T>>>,
     pub volatile_data: Arc<Mutex<VolatileState>>,
-    pub node_state: S,
+    pub node_state: Election,
 }
 
 
@@ -195,65 +220,27 @@ pub struct Candidate;
 pub struct Follower;
 
 
-impl<T> From<Raft<Follower, T>> for Raft<Candidate, T> {
-    fn from(raft: Raft<Follower, T>) -> Self {
-        Raft {
-            volatile_data: raft.volatile_data,
-            meta: raft.meta,
-            cluster: raft.cluster,
-            persistent_data: raft.persistent_data,
-            node_state: Candidate,
-        }
+
+impl From<Follower> for Candidate {
+    fn from(_: Follower) -> Self {
+        Candidate {}
+    }
+}
+impl From<Candidate> for Follower {
+    fn from(_: Candidate) -> Self {
+        Follower {}
     }
 }
 
-
-impl<T> From<Raft<Candidate, T>> for Raft<Leader, T> {
-    fn from(raft: Raft<Candidate, T>) -> Self {
-        
-        Raft {
-            volatile_data: raft.volatile_data,
-            meta: raft.meta,
-            cluster: raft.cluster.clone(),
-            persistent_data: raft.persistent_data,
-            node_state: Leader {
-                neighbor_data: Arc::new(Mutex::new(raft.cluster.into()))
-            }
-        }
+impl From<Leader> for Follower {
+    fn from(_: Leader) -> Self {
+        Follower {}
     }
 }
 
-
-impl<T> From<Raft<Candidate, T>> for Raft<Follower, T> {
-    fn from(raft: Raft<Candidate, T>) -> Self {
-        Raft {
-            volatile_data: raft.volatile_data,
-            meta: raft.meta,
-            cluster: raft.cluster,
-            persistent_data: raft.persistent_data,
-            node_state: Follower
-        }
-    }
-}
-
-
-
-impl<T> From<Raft<Leader, T>> for Raft<Follower, T> {
-    fn from(raft: Raft<Leader, T>) -> Self {
-        Raft {
-            volatile_data: raft.volatile_data,
-            meta: raft.meta,
-            cluster: raft.cluster,
-            persistent_data: raft.persistent_data,
-            node_state: Follower
-        }
-    }
-}
-
-impl<S, T> Default for Raft<S, T> 
+impl<T> Default for Raft<T> 
 where
     T: Serialize + DeserializeOwned,
-    S: Default
 {
     fn default() -> Self {
 
@@ -262,24 +249,72 @@ where
             meta: NodeMetadata::new(), 
             cluster: HashMap::new(),
             volatile_data: Arc::new(Mutex::new(VolatileState::default())), 
-            node_state: S::default(),
+            node_state: Default::default(),
         }
     }
 }
 
 
-impl<S, T> Raft<S, T> 
+impl<T> Raft<T> 
 where
     T: Serialize + DeserializeOwned,
-    S: Default
 {
     pub fn new() -> Self {
         Default::default()
     }
+
+    pub fn promote(self) -> Self {
+
+        let node_state = match self.node_state {
+
+            Election::Follower(node) => {
+                Election::Candidate(node.into())
+            },
+            Election::Candidate(_) => {
+                Election::Leader(Leader {
+                    neighbor_data: Arc::new(Mutex::new(self.cluster.clone().into()))
+                })
+            },
+            Election::Leader(candidate) => {
+                panic!("A leader {candidate:?} cannot be promoted any further.");
+            }
+        };
+
+        Self {
+            persistent_data: self.persistent_data,
+            cluster: self.cluster,
+            meta: self.meta,
+            volatile_data: self.volatile_data,
+            node_state
+        }
+
+    }
+
+    pub fn demote(self) -> Self {
+        let node_state = match self.node_state {
+            Election::Follower(node) => {
+                panic!("A follower {node:?} cannot be promoted any further.");
+            },
+            Election::Candidate(node) => {
+                Election::Follower(node.into())
+            },
+            Election::Leader(node) => {
+                Election::Follower(node.into())
+            }
+        };
+
+        Self {
+            persistent_data: self.persistent_data,
+            cluster: self.cluster,
+            meta: self.meta,
+            volatile_data: self.volatile_data,
+            node_state
+        }
+    }
 }
 
 
-impl<S, T> Raft<S, T> 
+impl<T> Raft<T> 
 where
     T: Clone + Serialize + DeserializeOwned
 {
@@ -296,7 +331,7 @@ where
     }
 }
 
-impl<S, T> Raft<S, T>
+impl<T> Raft<T>
 where
     T: Serialize + DeserializeOwned 
 {
@@ -308,10 +343,9 @@ where
 }
 
 
-impl<S, T> From<Config> for Raft<S, T>
+impl<T> From<Config> for Raft<T>
 where
     T: Serialize + DeserializeOwned,
-    S: Default
 {
     fn from(config: Config) -> Self {
 
@@ -320,7 +354,7 @@ where
             cluster: config.rafts.iter().map(|raft| (raft.id, raft.clone())).collect(), 
             persistent_data: Arc::new(Mutex::new(PersistentState::new())), 
             volatile_data: Arc::new(Mutex::new(VolatileState::new())), 
-            node_state: S::default(),
+            node_state: Default::default(),
         }
     }
 }
@@ -333,9 +367,9 @@ where
 {}
 
 
-use tokio::time::timeout;
+use tokio::time::{timeout, Timeout};
 
-impl<T> Raft<Follower, T> 
+impl<T> Raft<T> 
 where
     T: RaftLogEntry
 {
@@ -421,7 +455,7 @@ impl From<NodeMetadata> for ClusterNode {
 pub mod tests {
     use crate::storage::state;
 
-    use super::{Raft, PersistentState, VolatileState, NodeMetadata, Follower, Candidate, Leader, LeaderVolatileState};
+    use super::{Raft, PersistentState, VolatileState, NodeMetadata, Follower, Candidate, Leader, LeaderVolatileState, Election};
     use state_machine::StateMachine;
     use state_machine::impls::key_value_store::*;
     use serde_json::Value;
@@ -432,9 +466,9 @@ pub mod tests {
 
     #[test]
     fn test_create_new_raft_node() {
-        let node: Raft<Follower, usize> = Raft::new();
+        let node: Raft<usize> = Raft::new();
 
-        assert_eq!(node.node_state, Follower);
+        assert_eq!(node.node_state, Election::Follower(Follower::default()));
         assert_eq!(node.meta, NodeMetadata::new());
         assert_eq!(&*node.persistent_data.lock().unwrap(), &PersistentState::new());
         assert_eq!(&*node.volatile_data.lock().unwrap(), &VolatileState::new());
@@ -443,13 +477,13 @@ pub mod tests {
 
     #[test]
     fn transform_follower_into_candidate() {
-        let node: Raft<Follower, usize> = Raft::new();
-        assert_eq!(node.node_state, Follower);
+        let node: Raft<usize> = Raft::new();
+        assert_eq!(node.node_state, Election::Follower(Follower::default()));
         assert_eq!(node.meta, NodeMetadata::new());
         assert_eq!(&*node.persistent_data.lock().unwrap(), &PersistentState::new());
         assert_eq!(&*node.volatile_data.lock().unwrap(), &VolatileState::new());
-        let node: Raft<Candidate, usize> = node.into();
-        assert_eq!(node.node_state, Candidate);
+        let node: Raft<usize> = node.promote();
+        assert_eq!(node.node_state, Election::Candidate(Candidate::default()));
         assert_eq!(node.meta, NodeMetadata::new());
         assert_eq!(&*node.persistent_data.lock().unwrap(), &PersistentState::new());
         assert_eq!(&*node.volatile_data.lock().unwrap(), &VolatileState::new());
@@ -457,12 +491,13 @@ pub mod tests {
 
     #[test]
     fn transform_candidate_into_leader() {
-        let node: Raft<Candidate, usize> = Raft::new();
-        assert_eq!(node.node_state, Candidate);
+        let mut node: Raft<usize> = Raft::new();
+        node = node.promote();
+        assert_eq!(node.node_state, Election::Candidate(Candidate::default()));
         assert_eq!(node.meta, NodeMetadata::new());
         assert_eq!(&*node.persistent_data.lock().unwrap(), &PersistentState::new());
         assert_eq!(&*node.volatile_data.lock().unwrap(), &VolatileState::new());
-        let node: Raft<Leader, usize> = node.into();
+        let node: Raft<usize> = node.promote();
         // assert_eq!(node.node_state, Leader);
         assert_eq!(node.meta, NodeMetadata::new());
         assert_eq!(&*node.persistent_data.lock().unwrap(), &PersistentState::new());

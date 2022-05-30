@@ -7,7 +7,7 @@ use log::{info, trace, debug};
 use crate::node::{Raft};
 
 
-pub async fn heartbeat<S, T>(node: &Raft<S, T>, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> 
+pub async fn heartbeat<T>(node: &Raft<T>, request: Request<HeartbeatRequest>) -> Result<Response<HeartbeatResponse>, Status> 
 {
     trace!("Got a Heartbeat request: {:?}", request);
 

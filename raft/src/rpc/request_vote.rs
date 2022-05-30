@@ -52,7 +52,7 @@ use log::{debug, info, trace, warn};
 /// }
 /// ```
 /// 
-pub async fn request_vote<S, T>(node: &Raft<S, T>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
+pub async fn request_vote<T>(node: &Raft<T>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
 where
     T: Clone + Serialize + DeserializeOwned + From<Vec<u8>> + std::fmt::Debug,
 
@@ -271,7 +271,7 @@ pub mod tests {
                     set_up_logging();
 
                     // This node receives the RPC.
-                    let mut receiver: Raft<Follower, Vec<u8>> = Raft::default();
+                    let mut receiver: Raft<Vec<u8>> = Raft::default();
                     
                     let mut log_file_path = PathBuf::from("/tmp");
                     let log_file_base = rand::thread_rng().sample_iter(&Alphanumeric).take(15).map(char::from).collect::<String>();

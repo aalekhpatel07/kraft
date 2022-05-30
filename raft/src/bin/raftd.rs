@@ -86,7 +86,7 @@ pub async fn main() {
 
     let config = Config::default();
     
-    let node: Raft<Follower, Vec<u8>> = config.into();
+    let node: Raft<Vec<u8>> = config.into();
 
     info!("Cluster: {:#?}", node.cluster);
     // let follower_handle = tokio::spawn(async move {
