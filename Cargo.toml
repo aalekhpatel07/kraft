@@ -3,7 +3,8 @@
 members = [
 	"proto",
 	"raft",
-	"state_machine"
+	"state_machine",
+	"raft-monitor"
 ]
 
 [profile.release]
