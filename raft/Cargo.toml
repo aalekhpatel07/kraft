@@ -6,8 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["hashbrown"]
+default = ["hashbrown", "monitor"]
 hashbrown = ["dep:hashbrown", "hashbrown?/serde"]
+monitor = ["dep:serde_prefix"]
 
 [dependencies]
 clap = { version = "3.1.9", features = ["derive"] }
@@ -16,8 +17,7 @@ flate2 = "1.0.23"
 futures = "0.3.21"
 log = "0.4.16"
 rmp-serde = "1.0.0"
-serde = { version = "1.0.136", features = ["rc"]}
-serde_derive = "1.0.136"
+serde = { version = "1.0.136", features = ["rc", "derive"]}
 serde_millis = "0.1.1"
 simple_logger = { version = "2.1.0", features = ["colors", "timestamps"] }
 tokio = { version = "1.17.0", features = ["net", "time", "io-util", "rt", "macros", "rt-multi-thread", "sync", "fs"] }
@@ -32,3 +32,5 @@ hashbrown = { version = "0.11.2", optional = true, features = ["serde"] }
 crossbeam-channel = { version = "0.5.4" }
 r2d2 = { version = "0.8.9" }
 toml = { version = "0.5.9" }
+uuid = { version = "1.1.2", features = ["v4", "fast-rng", "serde"] }
+serde_prefix = { version = "0.1.0", optional = true }

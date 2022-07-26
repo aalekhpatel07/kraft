@@ -14,6 +14,7 @@ use proto::{
 mod request_vote;
 mod append_entries;
 mod heartbeat;
+pub mod diagnostic;
 use anyhow::Result;
 use log::{info, error, warn};
 use crate::utils::test_utils::set_up_logging;

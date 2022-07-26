@@ -609,7 +609,6 @@ pub mod random {
 #[cfg(test)]
 pub mod tests {
 
-    use serde_derive::{Serialize, Deserialize};
     use std::hash::Hash;
     use std::fmt::Debug;
 

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use crate::node::{Raft, ClusterNode, Follower, NodeMetadata, PersistentState, VolatileState};
 
 /// The configuration that provides the information about a particular Raft node in a cluster.
-#[derive(Debug, Clone, serde_derive::Deserialize, serde_derive::Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub rafts: Vec<ClusterNode>,
     pub id: u64,

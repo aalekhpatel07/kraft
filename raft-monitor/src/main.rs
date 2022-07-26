@@ -1,20 +1,20 @@
+use std::fmt::Debug;
+use std::ops::Deref;
+use std::sync::Arc;
 use std::{
-    collections::HashMap,
     io::Error as IoError,
     net::SocketAddr,
-    sync::{Arc, Mutex},
 };
 
-use raft_monitor::rpc::{RPCDiagnostic, DiagnosticKind};
+use raft::rpc::diagnostic::{RPCDiagnostic, DiagnosticKind};
+use raft::node::{State};
 use log::{debug, error, info, warn, trace};
+use serde::{Serialize, de::DeserializeOwned, Deserialize};
 use simple_logger::SimpleLogger;
-use futures::{future, pin_mut, StreamExt, TryStreamExt};
-use futures_channel::mpsc::{unbounded, UnboundedSender};
+use meilisearch_sdk::client::*;
 
-use tokio::net::{TcpListener, TcpStream};
-
-// type Tx = UnboundedSender<Message>;
-// type PeerMap = Arc<Mutex<HashMap<SocketAddr, Tx>>>;
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use uuid::Uuid;
 
 pub fn set_up_logging() {
     SimpleLogger::new()
@@ -24,44 +24,72 @@ pub fn set_up_logging() {
 }
 
 
-pub async fn process_stream(mut stream: TcpStream, addr: SocketAddr) {
-    info!("Stream: {:#?}\nAddr: {}", stream, addr);
-    let (read_stream, _) = stream.split();
-    
-    let mut buffer = [0u8; 1024];
-    while let Ok(bytes_read) = read_stream.try_read(&mut buffer) {
-        if bytes_read == 0 {
-            warn!("No bytes read from stream");
-            return;
-        }
-        trace!("Bytes read: {}", bytes_read);
-        if let Ok(msg) = serde_json::from_slice::<RPCDiagnostic<usize>>(&buffer) {
-            info!("Message: {:#?}", msg);
-        } else {
-            error!("Error deserializing message.");
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Document<T> {
+    pub uid: String,
+    #[serde(flatten)]
+    pub content: RPCDiagnostic<State<T>>,
+}
+
+impl<T> Document<T> {
+    pub fn new(content: RPCDiagnostic<State<T>>) -> Self {
+        Self {
+            uid: Uuid::new_v4().to_string(),
+            content
         }
     }
 }
 
+pub async fn process_message<T>(mut data: RPCDiagnostic<State<T>>, len: usize, addr: SocketAddr, backend_conn: Arc<Client>) 
+where
+    T: Serialize + DeserializeOwned + Debug + Clone
+{
+    data.state.node.addr = addr.to_string();
+    info!("Data: {:#?}, Len: {:#?}\nAddr: {}", data, len, addr);
+
+    let documents = [Document::new(data)];
+
+    match backend_conn.index("raft_diagnostics").add_documents(&documents, Some("uid")).await {
+        Ok(_) => {
+            info!("Document added to backend");
+        }
+        Err(e) => {
+            error!("Error adding document to backend: {}", e);
+        }
+    }
+    
+}
+
+pub fn connect_backend(addr: &str) -> Client {
+    Client::new(addr, "masterKey")
+}
 
 #[tokio::main]
 async fn main() -> Result<(), IoError> {
     set_up_logging();
     // let peer_map = PeerMap::new(Mutex::new(HashMap::new()));
-    let addr: String = "127.0.0.1:8000".into();
+    let bind_addr: String = "0.0.0.0:8000".into();
+    let backend_addr: String = "http://127.0.0.1:7700".into();
 
-    // Create the event loop and TCP listener we'll accept connections on.
-    let try_socket = TcpListener::bind(&addr).await;
-    let listener = try_socket.expect("Failed to bind");
-    info!("Listening on: {}", addr);
+    let backend_conn = Arc::new(connect_backend(&backend_addr));
 
-    // Let's spawn the handling of each connection in a separate task.
-    while let Ok((stream, addr)) = listener.accept().await {
-        tokio::spawn(process_stream(
-            stream,
-            addr,
-        ));
+    // Create the event loop and UDP listener we'll accept connections on.
+    let socket = UdpSocket::bind(&bind_addr).await?;
+    debug!("Listening UDP on: {}", bind_addr);
+
+    let mut buf = [0; 1024];
+
+    loop {
+        let (len, addr) = socket.recv_from(&mut buf).await?;
+        // info!("Received {} bytes from {}", len, addr);
+        if let Ok(diagnostic_message) = serde_json::from_slice::<RPCDiagnostic<State<Vec<u8>>>>(&buf[..len]) {
+            tokio::spawn(
+                process_message(diagnostic_message, len, addr, backend_conn.clone())
+            );
+        }
+        else {
+            warn!("Couldn't deserialize the message.");
+        }
+        // buf.clear();
     }
-
-    Ok(())
 }

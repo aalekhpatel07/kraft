@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
-use serde_derive::{Deserialize, Serialize};
+use serde_prefix::prefix_all;
 use crate::config::Config;
 // use crate::storage::state::persistent::{self, State};
 use crate::storage::state::raft_io::ReadWriteState;
@@ -360,6 +360,31 @@ where
 }
 
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct State<T> {
+    #[serde(flatten)]
+    pub persistent: PersistentState<T>,
+    #[serde(flatten)]
+    pub volatile: VolatileState,
+    #[cfg(feature = "monitor")]
+    pub node: NodeMetadata,
+}
+
+impl<T> From<&Raft<T>> for State<T> 
+where
+    T: Serialize + DeserializeOwned + Clone,
+{
+    fn from(raft: &Raft<T>) -> Self {
+        let persistent = raft.persistent_data.lock().unwrap();
+        let volatile = raft.volatile_data.lock().unwrap();
+        Self {
+            persistent: persistent.clone(),
+            volatile: volatile.clone(),
+            node: raft.meta.clone()
+        }
+    }
+}
+
 pub trait RaftLogEntry: Clone + Send + Serialize + DeserializeOwned + std::fmt::Debug + From<Vec<u8>> {}
 impl<T> RaftLogEntry for T 
 where
@@ -409,6 +434,7 @@ where
 }
 
 
+#[prefix_all("node_")]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct NodeMetadata {
     pub id: Int,

@@ -14,9 +14,10 @@ pub enum DiagnosticKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RPCDiagnostic<T> {
-    pub id: Uuid,
+    pub rpc_id: Uuid,
     pub kind: DiagnosticKind,
     pub time_stamp: SystemTime,
+    #[serde(flatten)]
     pub state: T
 }
 
@@ -30,16 +31,16 @@ where
         state: T
     ) -> RPCDiagnostic<T> {
         RPCDiagnostic {
-            id: Uuid::new_v4(),
+            rpc_id: Uuid::new_v4(),
             kind,
             state,
             time_stamp: SystemTime::now()
         }
     }
 
-    pub fn with_id(self, id: Uuid) -> RPCDiagnostic<T> {
+    pub fn with_id(self, rpc_id: Uuid) -> RPCDiagnostic<T> {
         RPCDiagnostic {
-            id,
+            rpc_id,
             ..self
         }
     }

@@ -4,9 +4,22 @@ use proto::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tonic::{Request, Response, Status};
-use crate::{node::{Raft, Log, Follower}};
+use crate::{node::{Raft, Log, Follower, State}, rpc::diagnostic::{RPCDiagnostic, DiagnosticKind}};
 use log::{debug, info, trace, warn};
+use std::net::UdpSocket;
+use uuid::Uuid;
 
+#[cfg(feature = "monitor")]
+pub fn report_state<T>(diagnostic_message: &RPCDiagnostic<State<T>>) 
+where
+    T: DeserializeOwned + Serialize + std::fmt::Debug + Clone
+{
+
+    let sock = UdpSocket::bind("0.0.0.0:8001").expect("Couldn't bind to UDP socket");
+    let diag_serialized = serde_json::to_string(&diagnostic_message).unwrap();
+    info!("Sending state to monitor: {}", diag_serialized);
+    sock.send_to(diag_serialized.as_bytes(), "0.0.0.0:8000").expect("Couldn't send UDP message");
+}
 
 /// Given a raft node that receives a request for a RequestVoteRPC,
 /// determine if the receiving node should grant the vote to the requester
@@ -59,6 +72,15 @@ where
 {
     trace!("Got a Vote request: {:?}", request);
 
+    let rpc_id = Uuid::new_v4();
+
+    #[cfg(feature = "monitor")]
+    {
+        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverBeforeProcessing, node.into()).with_id(rpc_id);
+        report_state(&diagnostic_message);
+    }
+    // report_state(&node, DiagnosticKind::ReceiverBeforeProcessing);
+
     let VoteRequest {
         term, 
         candidate_id, 
@@ -79,6 +101,12 @@ where
         // If we don't drop, we deadlock ;(
         drop(current_state_guard);
         node.save().expect("Couldn't save node to stable storage.");
+
+        #[cfg(feature = "monitor")]
+        {
+            let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+            report_state(&diagnostic_message);
+        }
         return Ok(Response::new(VoteResponse { term: latest_term , vote_granted: false }));
     }
 
@@ -136,6 +164,12 @@ where
                 warn!("We ({my_id}) have already voted for ({voted_for}) in election term ({latest_term}) so we deny candidate ({candidate_id}) a vote for term ({term}).");
                 drop(current_state_guard);
                 node.save().expect("Couldn't save node to stable storage.");
+                
+                #[cfg(feature = "monitor")]
+                {
+                    let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                    report_state(&diagnostic_message);
+                }
                 return Ok(Response::new(VoteResponse { term: latest_term , vote_granted: false }));
             } 
             // We have already voted but in some term before the one that the candidate presented.
@@ -151,6 +185,12 @@ where
                     drop(current_state_guard);
 
                     node.save().expect("Couldn't save node to stable storage.");
+
+                    #[cfg(feature = "monitor")]
+                    {
+                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                        report_state(&diagnostic_message);
+                    }
                     return Ok(Response::new(VoteResponse { term, vote_granted: true }))
                 } else {
                     warn!("Since the candidate's ({candidate_id}) log is stale compared to ours ({my_id}), we DO NOT grant it a vote.");
@@ -158,6 +198,12 @@ where
                     current_state_guard.current_term = term;
                     drop(current_state_guard);
                     node.save().expect("Couldn't save node to stable storage.");
+
+                    #[cfg(feature = "monitor")]
+                    {
+                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                        report_state(&diagnostic_message);
+                    }
                     return Ok(Response::new(VoteResponse { term, vote_granted: false }))
                 }
             }
@@ -172,10 +218,20 @@ where
                 if candidate_log_is_up_to_date {
 
                     node.save().expect("Couldn't save node to stable storage.");
+                    #[cfg(feature = "monitor")]
+                    {
+                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                        report_state(&diagnostic_message);
+                    }
                     return Ok(Response::new(VoteResponse { term, vote_granted: true }))
                 } else {
 
                     node.save().expect("Couldn't save node to stable storage.");
+                    #[cfg(feature = "monitor")]
+                    {
+                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                        report_state(&diagnostic_message);
+                    }
                     return Ok(Response::new(VoteResponse { term, vote_granted: false }))
                 }
             } else {
@@ -186,12 +242,22 @@ where
                     drop(current_state_guard);
 
                     node.save().expect("Couldn't save node to stable storage.");
+                    #[cfg(feature = "monitor")]
+                    {
+                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                        report_state(&diagnostic_message);
+                    }
                     return Ok(Response::new(VoteResponse { term, vote_granted: true }))
                 } else {
                     current_state_guard.current_term = term;
                     drop(current_state_guard);
 
                     node.save().expect("Couldn't save node to stable storage.");
+                    #[cfg(feature = "monitor")]
+                    {
+                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                        report_state(&diagnostic_message);
+                    }
                     return Ok(Response::new(VoteResponse { term, vote_granted: false }))
                 }                
             }
@@ -207,6 +273,11 @@ where
             drop(current_state_guard);
 
             node.save().expect("Couldn't save node to stable storage.");
+            #[cfg(feature = "monitor")]
+            {
+                let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                report_state(&diagnostic_message);
+            }
             return Ok(Response::new(VoteResponse { term, vote_granted: true }))
         } else {
 
@@ -216,6 +287,11 @@ where
             drop(current_state_guard);
 
             node.save().expect("Couldn't save node to stable storage.");
+            #[cfg(feature = "monitor")]
+            {
+                let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
+                report_state(&diagnostic_message);
+            }
             return Ok(Response::new(VoteResponse { term, vote_granted: false }))
         }
     }
