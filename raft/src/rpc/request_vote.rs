@@ -2,23 +2,53 @@ use proto::{
     VoteRequest, 
     VoteResponse,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Serialize, Deserialize};
 use tonic::{Request, Response, Status};
-use crate::{node::{Raft, Log, Follower, State}, rpc::diagnostic::{RPCDiagnostic, DiagnosticKind}};
+use crate::{node::{Raft, Log, Follower, State}};
 use log::{debug, info, trace, warn};
 use std::net::UdpSocket;
 use uuid::Uuid;
 
-#[cfg(feature = "monitor")]
-pub fn report_state<T>(diagnostic_message: &RPCDiagnostic<State<T>>) 
-where
-    T: DeserializeOwned + Serialize + std::fmt::Debug + Clone
-{
 
-    let sock = UdpSocket::bind("0.0.0.0:8001").expect("Couldn't bind to UDP socket");
-    let diag_serialized = serde_json::to_string(&diagnostic_message).unwrap();
-    info!("Sending state to monitor: {}", diag_serialized);
-    sock.send_to(diag_serialized.as_bytes(), "0.0.0.0:8000").expect("Couldn't send UDP message");
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct VoteRequestBody {
+    /// The election term that the candidate node is in.
+    pub term: u64,
+    /// The ID of the candidate node that is requesting a vote.
+    pub candidate_id: u64,
+    /// The index of the candidate's last log entry.
+    pub last_log_index: u64,
+    /// The term of the candidate's last log entry.
+    pub last_log_term: u64,
+}
+/// Returned by followers when a candidate requests for vote.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct VoteResponseBody {
+    /// The election term that the follower node is in.
+    pub term: u64,
+    /// Whether the follower node granted a vote to this candidate.
+    pub vote_granted: bool,
+}
+
+
+impl From<&VoteRequest> for VoteRequestBody {
+    fn from(request: &VoteRequest) -> Self {
+        VoteRequestBody {
+            term: request.term,
+            candidate_id: request.candidate_id,
+            last_log_index: request.last_log_index,
+            last_log_term: request.last_log_term
+        }
+    }
+}
+
+impl From<&VoteResponse> for VoteResponseBody  {
+    fn from(response: &VoteResponse) -> Self {
+        VoteResponseBody {
+            term: response.term,
+            vote_granted: response.vote_granted
+        }
+    }
 }
 
 /// Given a raft node that receives a request for a RequestVoteRPC,
@@ -65,28 +95,19 @@ where
 /// }
 /// ```
 /// 
-pub async fn request_vote<T>(node: &Raft<T>, request: Request<VoteRequest>) -> Result<Response<VoteResponse>, Status> 
+pub async fn request_vote<T>(node: &Raft<T>, request: VoteRequest) -> Result<VoteResponse, Status> 
 where
     T: Clone + Serialize + DeserializeOwned + From<Vec<u8>> + std::fmt::Debug,
 
 {
     trace!("Got a Vote request: {:?}", request);
 
-    let rpc_id = Uuid::new_v4();
-
-    #[cfg(feature = "monitor")]
-    {
-        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverBeforeProcessing, node.into()).with_id(rpc_id);
-        report_state(&diagnostic_message);
-    }
-    // report_state(&node, DiagnosticKind::ReceiverBeforeProcessing);
-
     let VoteRequest {
         term, 
         candidate_id, 
         last_log_index, 
         last_log_term
-    } = request.into_inner();
+    } = request;
 
     let mut current_state_guard = node.persistent_data.lock().expect("Could not lock persistent state.");
 
@@ -102,12 +123,7 @@ where
         drop(current_state_guard);
         node.save().expect("Couldn't save node to stable storage.");
 
-        #[cfg(feature = "monitor")]
-        {
-            let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-            report_state(&diagnostic_message);
-        }
-        return Ok(Response::new(VoteResponse { term: latest_term , vote_granted: false }));
+        return Ok(VoteResponse { term: latest_term , vote_granted: false });
     }
 
     let receiver_log = &current_state_guard.log;
@@ -164,13 +180,7 @@ where
                 warn!("We ({my_id}) have already voted for ({voted_for}) in election term ({latest_term}) so we deny candidate ({candidate_id}) a vote for term ({term}).");
                 drop(current_state_guard);
                 node.save().expect("Couldn't save node to stable storage.");
-                
-                #[cfg(feature = "monitor")]
-                {
-                    let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                    report_state(&diagnostic_message);
-                }
-                return Ok(Response::new(VoteResponse { term: latest_term , vote_granted: false }));
+                return Ok(VoteResponse { term: latest_term , vote_granted: false });
             } 
             // We have already voted but in some term before the one that the candidate presented.
             // So basically, some elections have happened without us knowing.
@@ -185,13 +195,7 @@ where
                     drop(current_state_guard);
 
                     node.save().expect("Couldn't save node to stable storage.");
-
-                    #[cfg(feature = "monitor")]
-                    {
-                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                        report_state(&diagnostic_message);
-                    }
-                    return Ok(Response::new(VoteResponse { term, vote_granted: true }))
+                    return Ok(VoteResponse { term, vote_granted: true })
                 } else {
                     warn!("Since the candidate's ({candidate_id}) log is stale compared to ours ({my_id}), we DO NOT grant it a vote.");
 
@@ -199,12 +203,7 @@ where
                     drop(current_state_guard);
                     node.save().expect("Couldn't save node to stable storage.");
 
-                    #[cfg(feature = "monitor")]
-                    {
-                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                        report_state(&diagnostic_message);
-                    }
-                    return Ok(Response::new(VoteResponse { term, vote_granted: false }))
+                    return Ok(VoteResponse { term, vote_granted: false })
                 }
             }
         }
@@ -218,21 +217,11 @@ where
                 if candidate_log_is_up_to_date {
 
                     node.save().expect("Couldn't save node to stable storage.");
-                    #[cfg(feature = "monitor")]
-                    {
-                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                        report_state(&diagnostic_message);
-                    }
-                    return Ok(Response::new(VoteResponse { term, vote_granted: true }))
+                    return Ok(VoteResponse { term, vote_granted: true })
                 } else {
 
                     node.save().expect("Couldn't save node to stable storage.");
-                    #[cfg(feature = "monitor")]
-                    {
-                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                        report_state(&diagnostic_message);
-                    }
-                    return Ok(Response::new(VoteResponse { term, vote_granted: false }))
+                    return Ok(VoteResponse { term, vote_granted: false })
                 }
             } else {
                 // We have voted for the candidate but in some previous term.
@@ -242,23 +231,13 @@ where
                     drop(current_state_guard);
 
                     node.save().expect("Couldn't save node to stable storage.");
-                    #[cfg(feature = "monitor")]
-                    {
-                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                        report_state(&diagnostic_message);
-                    }
-                    return Ok(Response::new(VoteResponse { term, vote_granted: true }))
+                    return Ok(VoteResponse { term, vote_granted: true })
                 } else {
                     current_state_guard.current_term = term;
                     drop(current_state_guard);
 
                     node.save().expect("Couldn't save node to stable storage.");
-                    #[cfg(feature = "monitor")]
-                    {
-                        let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                        report_state(&diagnostic_message);
-                    }
-                    return Ok(Response::new(VoteResponse { term, vote_granted: false }))
+                    return Ok(VoteResponse { term, vote_granted: false })
                 }                
             }
         }
@@ -273,12 +252,7 @@ where
             drop(current_state_guard);
 
             node.save().expect("Couldn't save node to stable storage.");
-            #[cfg(feature = "monitor")]
-            {
-                let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                report_state(&diagnostic_message);
-            }
-            return Ok(Response::new(VoteResponse { term, vote_granted: true }))
+            return Ok(VoteResponse { term, vote_granted: true })
         } else {
 
             warn!("Candidate's ({candidate_id}) log is stale compared to ours ({my_id}). Even though we haven't voted for anybody yet, we DO NOT vote for the candidate because we know we have a \"better\" log than the candidate.");
@@ -287,12 +261,7 @@ where
             drop(current_state_guard);
 
             node.save().expect("Couldn't save node to stable storage.");
-            #[cfg(feature = "monitor")]
-            {
-                let diagnostic_message = RPCDiagnostic::new(DiagnosticKind::ReceiverAfterProcessing, node.into()).with_id(rpc_id);
-                report_state(&diagnostic_message);
-            }
-            return Ok(Response::new(VoteResponse { term, vote_granted: false }))
+            return Ok(VoteResponse { term, vote_granted: false })
         }
     }
 }
@@ -309,6 +278,8 @@ pub mod tests {
     use state_machine::StateMachine;
     use log::{info, debug};
     use super::*;
+    use crate::utils::report_state;
+    use crate::rpc::{DiagnosticKind, RPCDiagnostic, DataKind, RPCKind};
     use tonic::{Request, Response, Status};
     use std::path::PathBuf;
     use crate::storage::state::raft_io::*;
@@ -316,11 +287,11 @@ pub mod tests {
     use rand::{distributions::Alphanumeric, Rng};
 
 
-    pub fn create_request(term: Int, candidate_id: Int, last_log_index: Int, last_log_term: Int) -> Request<VoteRequest> {
+    pub fn create_request(term: Int, candidate_id: Int, last_log_index: Int, last_log_term: Int) -> VoteRequest {
         let vote_request = VoteRequest {
             term, candidate_id, last_log_index, last_log_term
         };
-        Request::new(vote_request)
+        vote_request
     }
 
     pub fn create_response(term: Int, vote_granted: bool) -> VoteResponse {
@@ -365,12 +336,39 @@ pub mod tests {
                     // Create an expected response from the given response.
                     let expected_response = create_response($response.0, $response.1);
 
+
+                    let rpc_id = uuid::Uuid::new_v4();
+                    #[cfg(feature = "monitor")]
+                    {
+                        let diagnostic_message = RPCDiagnostic::new(
+                            DiagnosticKind::ReceiverBeforeProcessing,
+                            DataKind::Request,
+                            RPCKind::RequestVote,
+                            Some(VoteRequestBody::from(&request)),
+                            (&receiver).into()
+                        )
+                        .with_id(rpc_id);
+                        report_state(&diagnostic_message);
+                    }
+
                     // Make the RequestVoteRPC and get a response.
                     let observed_response = request_vote(&receiver, request).await.expect("RequestVoteRPC failed to await.");
 
+                    #[cfg(feature = "monitor")]
+                    {
+                        let diagnostic_message = RPCDiagnostic::new(
+                            DiagnosticKind::ReceiverAfterProcessing,
+                            DataKind::Response,
+                            RPCKind::RequestVote,
+                            Some(VoteResponseBody::from(&observed_response)),
+                            (&receiver).into()
+                        )
+                        .with_id(rpc_id);
+                        report_state(&diagnostic_message);
+                    }
                     // Assert the observed response is the same as expected.
                     assert_eq!(
-                        observed_response.into_inner(), 
+                        observed_response, 
                         expected_response,
                         "VoteResponse does not match up."
                     );

@@ -1,22 +1,94 @@
 use color_eyre::owo_colors::colors::css::Wheat;
 use proto::{
     AppendEntriesRequest, 
-    AppendEntriesResponse,
+    AppendEntriesResponse, LogEntry,
 };
 use tonic::{Request, Response, Status};
 use crate::node::{Raft, Leader};
 use log::{info, trace, debug, error, warn};
 // use crate::node::LogEntry;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 
-pub async fn append_entries<T>(node: &Raft<T>, request: Request<AppendEntriesRequest>) -> Result<Response<AppendEntriesResponse>, Status> 
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LogEntryBody {
+    pub term: u64,
+    pub command: Vec<u8>
+}
+
+
+/// Invoked by leader to replicate log entries.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AppendEntriesRequestBody {
+    /// The election term that the leader node is in.
+    pub term: u64,
+    /// The ID of the leader so that follower can redirect clients.
+    pub leader_id: u64,
+    /// The index of the log entry immediately preceding new ones.
+    pub prev_log_index: u64,
+    /// The term of the prev_log_index.
+    pub prev_log_term: u64,
+    /// The log entries to store.
+    pub entries: Vec<LogEntryBody>,
+    /// The leader's commit index.
+    pub leader_commit_index: u64,
+}
+
+
+/// Returned by candidates and followers when a leader requests to AppendEntries.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct AppendEntriesResponseBody {
+    /// The current term for leader to update itself.
+    pub term: u64,
+    /// True, if a follower contained an entry matching prev_log_index and prev_log_term
+    pub success: bool,
+    /// The term for the earliest conflicting entry, if unsuccessful.
+    pub conflicting_term: u64,
+    /// The index of the first entry in the conflicting term, if unsuccessful.
+    pub conflicting_term_first_index: u64,
+}
+
+
+impl From<&LogEntry> for LogEntryBody {
+    fn from(entry: &LogEntry) -> Self {
+        LogEntryBody {
+            term: entry.term,
+            command: entry.command.clone()
+        }
+    }
+}
+
+impl From<&AppendEntriesRequest> for AppendEntriesRequestBody {
+    fn from(request: &AppendEntriesRequest) -> Self {
+        AppendEntriesRequestBody {
+            term: request.term,
+            leader_id: request.leader_id,
+            prev_log_index: request.prev_log_index,
+            prev_log_term: request.prev_log_term,
+            entries: request.entries.iter().map(|entry| entry.into()).collect(),
+            leader_commit_index: request.leader_commit_index
+        }
+    }
+}
+
+impl From<&AppendEntriesResponse> for AppendEntriesResponseBody {
+    fn from(response: &AppendEntriesResponse) -> Self {
+        AppendEntriesResponseBody {
+            term: response.term,
+            success: response.success,
+            conflicting_term: response.conflicting_term,
+            conflicting_term_first_index: response.conflicting_term_first_index
+        }
+    }
+}
+
+
+pub async fn append_entries<T>(node: &Raft<T>, request: AppendEntriesRequest) -> Result<Response<AppendEntriesResponse>, Status> 
 where
     T: Clone + DeserializeOwned + Serialize + From<Vec<u8>>
 {
     trace!("Got an Append Entries request: {:?}", request);
-
-    let request = request.into_inner();
 
     let mut persistent_data = node.persistent_data.lock().unwrap();
     let mut volatile_data = node.volatile_data.lock().unwrap();
@@ -244,7 +316,7 @@ pub mod tests {
                     let expected_response = create_response($response.0, $response.1);
 
                     // Make the AppendEntriesRPC and get a response.
-                    let observed_response = append_entries(&receiver, request).await.expect("AppendEntriesRPC failed to await.");
+                    let observed_response = append_entries(&receiver, request.into_inner()).await.expect("AppendEntriesRPC failed to await.");
 
                     // Assert the observed response is the same as expected.
                     assert_eq!(
