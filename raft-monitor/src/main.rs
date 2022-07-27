@@ -6,7 +6,7 @@ use std::{
     net::SocketAddr,
 };
 
-use raft::rpc::diagnostic::{RPCDiagnostic, DiagnosticKind};
+use raft::rpc::diagnostic::{RPCDiagnostic, VoteRequestBody, VoteResponseBody};
 use raft::node::{State};
 use log::{debug, error, info, warn, trace};
 use serde::{Serialize, de::DeserializeOwned, Deserialize};
@@ -25,31 +25,33 @@ pub fn set_up_logging() {
 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Document<T> {
-    pub uid: String,
+pub struct Document<T, D> {
+    pub id: String,
     #[serde(flatten)]
-    pub content: RPCDiagnostic<State<T>>,
+    pub content: RPCDiagnostic<State<T>, D>,
 }
 
-impl<T> Document<T> {
-    pub fn new(content: RPCDiagnostic<State<T>>) -> Self {
+impl<T, D> Document<T, D> {
+    pub fn new(content: RPCDiagnostic<State<T>, D>) -> Self {
         Self {
-            uid: Uuid::new_v4().to_string(),
+            id: Uuid::new_v4().to_string(),
             content
         }
     }
 }
 
-pub async fn process_message<T>(mut data: RPCDiagnostic<State<T>>, len: usize, addr: SocketAddr, backend_conn: Arc<Client>) 
+
+pub async fn process_message<T, D>(mut data: RPCDiagnostic<State<T>, D>, len: usize, addr: SocketAddr, backend_conn: Arc<Client>) 
 where
-    T: Serialize + DeserializeOwned + Debug + Clone
+    T: Serialize + DeserializeOwned + Debug + Clone,
+    D: std::fmt::Debug + Serialize + DeserializeOwned,
 {
     data.state.node.addr = addr.to_string();
     info!("Data: {:#?}, Len: {:#?}\nAddr: {}", data, len, addr);
 
     let documents = [Document::new(data)];
 
-    match backend_conn.index("raft_diagnostics").add_documents(&documents, Some("uid")).await {
+    match backend_conn.index("raft_diagnostics").add_documents(&documents, Some("id")).await {
         Ok(_) => {
             info!("Document added to backend");
         }
@@ -82,7 +84,12 @@ async fn main() -> Result<(), IoError> {
     loop {
         let (len, addr) = socket.recv_from(&mut buf).await?;
         // info!("Received {} bytes from {}", len, addr);
-        if let Ok(diagnostic_message) = serde_json::from_slice::<RPCDiagnostic<State<Vec<u8>>>>(&buf[..len]) {
+        if let Ok(diagnostic_message) = serde_json::from_slice::<RPCDiagnostic<State<Vec<u8>>, VoteRequestBody>>(&buf[..len]) {
+            tokio::spawn(
+                process_message(diagnostic_message, len, addr, backend_conn.clone())
+            );
+        }
+        else if let Ok(diagnostic_message) = serde_json::from_slice::<RPCDiagnostic<State<Vec<u8>>, VoteResponseBody>>(&buf[..len]) {
             tokio::spawn(
                 process_message(diagnostic_message, len, addr, backend_conn.clone())
             );
